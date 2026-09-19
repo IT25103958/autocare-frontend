@@ -1,8 +1,9 @@
 @import "tailwindcss";
 
+/* Force a clean, Light Mode canvas system-wide */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc; /* Tailwind slate-50 */
+  --foreground: #0f172a; /* Tailwind slate-900 */
 }
 
 @theme inline {
@@ -12,15 +13,25 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/*
+   The dark mode media query has been INTENTIONALLY REMOVED
+   to force the application to stay in Light Mode.
+*/
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Optional: Custom scrollbar for a premium feel */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 20px;
 }
