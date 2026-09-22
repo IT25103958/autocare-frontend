@@ -26,35 +26,57 @@ function NavigationBar() {
     const links = user.role !== "CUSTOMER" ? [{ name: "Dashboard", href: "/dashboard" }] : [];
 
     switch (user.role) {
+      case "SUPPLIER":
+        links.push(
+          { name: "Deliveries", href: "/deliveries" },
+          { name: "RMA Portal", href: "/rma" }
+        );
+        break;
       case "INVENTORY_MANAGER":
         links.push(
           { name: "Retail POS", href: "/pos" },
           { name: "Parts Catalog", href: "/parts" },
-          { name: "Deliveries", href: "/deliveries" }
+          { name: "Deliveries", href: "/deliveries" },
+          { name: "Returns (RMA)", href: "/rma" },
+          { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
       case "ACCOUNTS_FINANCE_OFFICER":
         links.push(
           { name: "Payables", href: "/payables" },
-          { name: "Payroll", href: "/salary" }
+          { name: "Payroll", href: "/salary" },
+          { name: "Refunds (RMA)", href: "/rma" },
+          { name: "Support Tickets", href: "/complaints" },
+          { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
       case "SERVICE_CENTER_MANAGER":
+        links.push(
+          { name: "Job Cards", href: "/bookings" },
+          { name: "Staff Roster", href: "/roster" },
+          { name: "Support Tickets", href: "/complaints" },
+          { name: "My Payslips", href: "/salary/my-payslips" }
+        );
+        break;
       case "TECHNICIAN":
         links.push(
-          { name: "Job Cards", href: "/bookings" }
+          { name: "Job Cards", href: "/bookings" },
+          { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
       case "FUEL_STATION_SUPERVISOR":
         links.push(
           { name: "Fuel Tanks", href: "/tanks" },
-          { name: "Pump Sales", href: "/fuel" }
+          { name: "Pump Sales", href: "/fuel" },
+          { name: "Support Tickets", href: "/complaints" },
+          { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
-      case "CUSTOMER_RELATIONS_OFFICER": // NEW: CRM Role Links
+      case "CUSTOMER_RELATIONS_OFFICER":
         links.push(
           { name: "Support Tickets", href: "/complaints" },
-          { name: "Customers", href: "/customers" }
+          { name: "Customers", href: "/customers" },
+          { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
       case "SUPER_ADMIN":
@@ -63,7 +85,12 @@ function NavigationBar() {
         links.push(
           { name: "Retail POS", href: "/pos" },
           { name: "Payables", href: "/payables" },
-          { name: "Users", href: "/users" }
+          { name: "Payroll", href: "/salary" },
+          { name: "RMA Ledger", href: "/rma" },
+          { name: "Support Tickets", href: "/complaints" },
+          { name: "Users", href: "/users" },
+          { name: "Security Logs", href: "/audit" },
+          { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
       case "CUSTOMER":

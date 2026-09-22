@@ -10,7 +10,9 @@ import FinanceDashboard from "./components/FinanceDashboard";
 import InventoryDashboard from "./components/InventoryDashboard";
 import WorkshopDashboard from "./components/WorkshopDashboard";
 import FuelDashboard from "./components/FuelDashboard";
-import CrmDashboard from "./components/CrmDashboard"; // NEW: CRM Import
+import CrmDashboard from "./components/CrmDashboard";
+import TechnicianDashboard from "./components/TechnicianDashboard";
+import SupplierDashboard from "./components/SupplierDashboard";
 
 export default function MasterDashboard() {
   const { user, isLoading } = useAuth();
@@ -74,12 +76,14 @@ export default function MasterDashboard() {
         <CrmDashboard userName={user.username} />
       )}
 
-      {/* FALLBACK FOR OTHERS (Mechanics) */}
+      {/* 7. TECHNICIAN DASHBOARD */}
       {user.role === "TECHNICIAN" && (
-        <div className="p-12 text-center">
-          <h1 className="text-3xl font-black text-slate-900 mb-4">Welcome back, {user.username}</h1>
-          <p className="text-slate-500 font-medium">Please select a module from the navigation bar to begin your shift.</p>
-        </div>
+        <TechnicianDashboard />
+      )}
+
+      {/* 8. SUPPLIER DASHBOARD (NEW FIX) */}
+      {user.role === "SUPPLIER" && (
+        <SupplierDashboard />
       )}
     </div>
   );

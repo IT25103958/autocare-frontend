@@ -7,7 +7,6 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "../context/AuthContext";
 
-// --- STRICT ENTERPRISE VALIDATION ---
 const rosterSchema = z.object({
   staffName: z.string().min(2, "Please select a staff member."),
   role: z.string().min(2, "System role is required."),
@@ -32,14 +31,14 @@ export default function RosterDashboard() {
   const [shifts, setShifts] = useState<StaffShift[]>([]);
   const [isMounted, setIsMounted] = useState(false);
   const [editingShiftId, setEditingShiftId] = useState<number | null>(null);
-
   const [staffList, setStaffList] = useState<any[]>([]);
 
   const [modal, setModal] = useState<{ isOpen: boolean; title: string; message: string; type: "success" | "error" }>({
     isOpen: false, title: "", message: "", type: "success"
   });
 
-  const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || user?.role === "SERVICE_CENTRE_MANAGER";
+  // FIXED: Added exact SERVICE_CENTER_MANAGER match for the Center Manager view
+  const isAdmin = user?.role === "SUPER_ADMIN" || user?.role === "SYSTEM_ADMIN" || user?.role === "EXECUTIVE_OWNER" || user?.role === "SERVICE_CENTER_MANAGER";
 
   const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<RosterFormInputs>({
     resolver: zodResolver(rosterSchema),
@@ -72,7 +71,13 @@ export default function RosterDashboard() {
     try {
       const res = await axios.get("http://localhost:8080/api/auth/all", getAuthHeader());
       if (res.data && res.data.length > 0) {
-        const staffOnly = res.data.filter((u: any) => u.role !== 'CUSTOMER');
+        // Exclude customers and high-level owners from shift scheduling
+        const staffOnly = res.data.filter((u: any) =>
+          u.role !== 'CUSTOMER' &&
+          u.role !== 'SUPER_ADMIN' &&
+          u.role !== 'EXECUTIVE_OWNER' &&
+          u.role !== 'SYSTEM_ADMIN'
+        );
         setStaffList(staffOnly);
       }
     } catch (err) {
@@ -155,9 +160,8 @@ export default function RosterDashboard() {
 
         <div className={`grid grid-cols-1 ${isAdmin ? 'lg:grid-cols-3' : 'lg:grid-cols-1'} gap-8`}>
 
-          {/* --- ADMIN ONLY: ASSIGN SHIFT FORM --- */}
           {isAdmin && (
-            <div className="lg:col-span-1 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
+            <div className="lg:col-span-1 animate-fade-in-up">
               <div className={`bg-white p-8 rounded-3xl shadow-sm border ${editingShiftId ? 'border-yellow-400 ring-4 ring-yellow-400/10' : 'border-slate-200'}`}>
                 <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
                   <h2 className="text-xl font-bold text-slate-800">{editingShiftId ? "Edit Shift" : "Assign Shift"}</h2>
@@ -167,8 +171,6 @@ export default function RosterDashboard() {
                 </div>
 
                 <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-
-                  {/* DYNAMIC STAFF DROPDOWN */}
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1.5">Staff Member</label>
                     <select
@@ -198,7 +200,6 @@ export default function RosterDashboard() {
                     {errors.staffName && <p className="mt-1.5 text-[11px] font-bold text-red-500">{errors.staffName.message}</p>}
                   </div>
 
-                  {/* AUTO-FILLED SYSTEM ROLE */}
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1.5 flex justify-between">
                       <span>System Role</span>
@@ -206,17 +207,14 @@ export default function RosterDashboard() {
                     </label>
                     <input
                       {...register("role")}
-                      type="text"
-                      readOnly
-                      placeholder="Select a staff member first..."
+                      type="text" readOnly placeholder="Select a staff member first..."
                       className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-100 text-slate-500 font-bold uppercase tracking-wider text-xs outline-none cursor-not-allowed"
                     />
-                    {errors.role && <p className="mt-1.5 text-[11px] font-bold text-red-500">{errors.role.message}</p>}
                   </div>
 
                   <div>
                     <label className="block text-sm font-bold text-slate-700 mb-1.5">Shift Date</label>
-                    <input {...register("shiftDate")} type="date" className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 outline-none transition-all ${errors.shiftDate ? "border-red-500 focus:ring-4 focus:ring-red-500/10" : "border-slate-200 focus:border-blue-500"}`} />
+                    <input {...register("shiftDate")} type="date" className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 outline-none transition-all ${errors.shiftDate ? "border-red-500" : "border-slate-200 focus:border-blue-500"}`} />
                     {errors.shiftDate && <p className="mt-1.5 text-[11px] font-bold text-red-500">{errors.shiftDate.message}</p>}
                   </div>
 
@@ -249,8 +247,7 @@ export default function RosterDashboard() {
             </div>
           )}
 
-          {/* --- BOTH: SHIFT LEDGER --- */}
-          <div className={`${isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'} animate-fade-in-up`} style={{ animationDelay: '0.2s' }}>
+          <div className={`${isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'} animate-fade-in-up`}>
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden h-full">
               <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                 <h3 className="text-xl font-bold text-slate-800">{isAdmin ? "Master Roster Schedule" : "My Assigned Shifts"}</h3>
@@ -286,16 +283,10 @@ export default function RosterDashboard() {
                             shift.status === 'ABSENT' ? 'bg-red-50 text-red-700 border-red-200' :
                             'bg-yellow-50 text-yellow-700 border-yellow-200'
                           }`}>
-                            {shift.status === 'SCHEDULED' && <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></span>}
-                            {shift.status === 'CONFIRMED' && <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>}
-                            {shift.status === 'COMPLETED' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>}
-                            {shift.status === 'ABSENT' && <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>}
                             {shift.status || "SCHEDULED"}
                           </span>
                         </td>
-
                         <td className="px-8 py-5 text-right">
-                          {/* ONLY ADMINS SEE EDIT/DELETE */}
                           {isAdmin ? (
                             <div className="flex justify-end gap-1">
                               <button onClick={() => handleEdit(shift)} className="p-2 text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-lg transition-colors" title="Edit Shift">
@@ -306,21 +297,13 @@ export default function RosterDashboard() {
                               </button>
                             </div>
                           ) : (
-                            /* ONLY STAFF SEE ACKNOWLEDGE BUTTON */
                             <div className="flex justify-end">
                               {shift.status === "SCHEDULED" ? (
-                                <button
-                                  onClick={() => handleAcknowledge(shift)}
-                                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-md transition-all active:scale-95 flex items-center gap-1.5"
-                                >
-                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+                                <button onClick={() => handleAcknowledge(shift)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shadow-md transition-all active:scale-95 flex items-center gap-1.5">
                                   Acknowledge
                                 </button>
                               ) : (
-                                <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5 justify-end">
-                                  <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
-                                  Acknowledged
-                                </span>
+                                <span className="text-xs font-bold text-slate-400 flex items-center gap-1.5 justify-end">Acknowledged</span>
                               )}
                             </div>
                           )}
@@ -328,11 +311,7 @@ export default function RosterDashboard() {
                       </tr>
                     ))}
                     {shifts.length === 0 && (
-                      <tr>
-                        <td colSpan={5} className="text-center py-12 text-slate-500 font-medium">
-                          {isAdmin ? "No shifts scheduled. Assign a staff member to begin." : "You have no upcoming shifts scheduled."}
-                        </td>
-                      </tr>
+                      <tr><td colSpan={5} className="text-center py-12 text-slate-500 font-medium">No shifts scheduled.</td></tr>
                     )}
                   </tbody>
                 </table>
@@ -342,24 +321,12 @@ export default function RosterDashboard() {
         </div>
       </div>
 
-      {/* --- ENTERPRISE MODAL --- */}
       {modal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm w-full border border-slate-200 text-center">
-            <div className={`flex items-center justify-center w-12 h-12 rounded-full mb-4 mx-auto ${modal.type === 'success' ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
-              {modal.type === 'success' ? (
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
-              ) : (
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-              )}
-            </div>
             <h3 className="text-xl font-bold text-slate-900 mb-2">{modal.title}</h3>
             <p className="text-slate-500 text-sm mb-6 font-medium">{modal.message}</p>
-            {/* FIXED BUTTON: Replaced conditional background with solid professional styling */}
-            <button
-              onClick={() => setModal({ ...modal, isOpen: false })}
-              className="w-full px-4 py-3 mt-2 rounded-xl font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-md transition-all active:scale-95"
-            >
+            <button onClick={() => setModal({ ...modal, isOpen: false })} className="w-full px-4 py-3 mt-2 rounded-xl font-bold text-white bg-slate-900 hover:bg-slate-800 shadow-md">
               Acknowledge
             </button>
           </div>
