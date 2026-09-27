@@ -5,6 +5,8 @@ import axios from "axios";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { useAuth } from "../context/AuthContext";
+import { useRouter } from "next/navigation";
 
 // --- STRICT ENTERPRISE VALIDATION ---
 const deliverySchema = z.object({
@@ -23,7 +25,10 @@ interface FuelTank {
   status: string;
 }
 
-export default function FuelTankDashboard() {
+export default function TanksTelemetryPage() {
+  const { user } = useAuth();
+  const router = useRouter();
+
   const [tanks, setTanks] = useState<FuelTank[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const [isMounted, setIsMounted] = useState(false);
@@ -51,12 +56,18 @@ export default function FuelTankDashboard() {
 
   useEffect(() => {
     setIsMounted(true);
-    fetchTanks();
 
-    // Live Polling every 10 seconds for real-time dashboard updates
+    // Security Guard: Kick out attendants immediately
+    if (user && user.role === "FUEL_ATTENDANT") {
+      router.push("/dashboard");
+      return;
+    }
+
+    fetchTanks();
+    // Live Polling every 10 seconds
     const intervalId = setInterval(() => { fetchTanks(); }, 10000);
     return () => clearInterval(intervalId);
-  }, []);
+  }, [user, router]);
 
   const onSubmit = async (data: DeliveryFormInputs) => {
     try {
@@ -66,22 +77,16 @@ export default function FuelTankDashboard() {
       fetchTanks();
     } catch (err: any) {
       let errorMsg = "Failed to communicate with the server. Ensure the backend endpoint is running.";
-
       if (err.response?.data) {
-        if (typeof err.response.data === 'string') {
-          errorMsg = err.response.data;
-        } else if (err.response.data.message) {
-          errorMsg = err.response.data.message;
-        } else if (err.response.data.error) {
-          errorMsg = `Server Error: ${err.response.data.error} (Status ${err.response.status})`;
-        }
+        if (typeof err.response.data === 'string') errorMsg = err.response.data;
+        else if (err.response.data.message) errorMsg = err.response.data.message;
+        else if (err.response.data.error) errorMsg = `Server Error: ${err.response.data.error} (Status ${err.response.status})`;
       }
-
       setModal({ isOpen: true, type: "error", title: "Action Failed", message: errorMsg });
     }
   };
 
-  if (!isMounted) return null;
+  if (!isMounted || user?.role === "FUEL_ATTENDANT") return null;
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50 p-6 lg:p-12 relative">
@@ -108,7 +113,7 @@ export default function FuelTankDashboard() {
 
           {/* LEFT: FORM */}
           <div className="lg:col-span-1 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
-            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+            <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 sticky top-6">
               <div className="flex items-center gap-3 mb-6 border-b border-slate-100 pb-4">
                  <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold">⛽</div>
                  <h2 className="text-xl font-bold text-slate-800">Log Fuel Delivery</h2>
@@ -140,7 +145,7 @@ export default function FuelTankDashboard() {
                   {errors.supplierInvoice && <p className="mt-1.5 text-[11px] font-bold text-red-500">{errors.supplierInvoice.message}</p>}
                 </div>
 
-                <button type="submit" disabled={isSubmitting} className="w-full bg-slate-900 hover:bg-blue-600 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg transition-all transform hover:-translate-y-0.5 mt-2">
+                <button type="submit" disabled={isSubmitting} className="w-full bg-slate-900 hover:bg-blue-600 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg transition-all transform hover:-translate-y-0.5 mt-2 disabled:opacity-70">
                   {isSubmitting ? "Transmitting..." : "Update Live Tank Stock"}
                 </button>
               </form>
@@ -160,7 +165,6 @@ export default function FuelTankDashboard() {
                 tanks.map((tank) => {
                   const safeCurrentStock = tank.currentStock || 0;
                   const safeMaxCapacity = tank.capacity || 1;
-
                   const fillPercentage = Math.min(100, Math.max(0, (safeCurrentStock / safeMaxCapacity) * 100));
 
                   return (
@@ -173,12 +177,11 @@ export default function FuelTankDashboard() {
                           </span>
                         </div>
                         <div className="text-right">
-                          <p className="text-3xl font-black text-slate-900">{safeCurrentStock.toLocaleString()}<span className="text-sm text-slate-500 font-bold ml-1">L</span></p>
+                          <p className="text-3xl font-black text-slate-900">{safeCurrentStock.toLocaleString(undefined, { maximumFractionDigits: 0 })}<span className="text-sm text-slate-500 font-bold ml-1">L</span></p>
                           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">of {safeMaxCapacity.toLocaleString()} L</p>
                         </div>
                       </div>
 
-                      {/* TAILWIND FIX: Color classes dynamically evaluated but explicitly written in the JSX string */}
                       <div className="h-6 w-full bg-slate-100 rounded-full overflow-hidden shadow-inner">
                         <div
                           className={`h-full transition-all duration-1000 ease-in-out relative ${fillPercentage > 50 ? 'bg-green-500' : fillPercentage > 20 ? 'bg-yellow-500' : 'bg-red-500 animate-pulse'}`}

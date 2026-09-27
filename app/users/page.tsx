@@ -75,6 +75,7 @@ export default function UserManagementDashboard() {
     { value: "INVENTORY_MANAGER", label: "Inventory Manager" },
     { value: "SERVICE_CENTER_MANAGER", label: "Service Center Manager" },
     { value: "FUEL_STATION_SUPERVISOR", label: "Fuel Station Supervisor" },
+    { value: "FUEL_ATTENDANT", label: "Fuel Attendant" }, // NEW: Added Fuel Attendant Role
     { value: "ACCOUNTS_FINANCE_OFFICER", label: "Accounts & Finance Officer" },
     { value: "TECHNICIAN", label: "Service Technician" },
     { value: "SUPPLIER", label: "Supplier" },

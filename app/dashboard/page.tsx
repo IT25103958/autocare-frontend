@@ -66,8 +66,8 @@ export default function MasterDashboard() {
         <WorkshopDashboard userName={user.username} />
       )}
 
-      {/* 5. FUEL DASHBOARD */}
-      {user.role === "FUEL_STATION_SUPERVISOR" && (
+      {/* 5. FUEL DASHBOARD (FIXED: Added FUEL_ATTENDANT route) */}
+      {(user.role === "FUEL_STATION_SUPERVISOR" || user.role === "FUEL_ATTENDANT") && (
         <FuelDashboard userName={user.username} />
       )}
 
@@ -81,7 +81,7 @@ export default function MasterDashboard() {
         <TechnicianDashboard />
       )}
 
-      {/* 8. SUPPLIER DASHBOARD (NEW FIX) */}
+      {/* 8. SUPPLIER DASHBOARD */}
       {user.role === "SUPPLIER" && (
         <SupplierDashboard />
       )}

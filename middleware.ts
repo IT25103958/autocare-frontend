@@ -5,13 +5,15 @@ const rolePermissions: Record<string, string[]> = {
   '/customers':  ['CUSTOMER'],
   '/bookings':   ['TECHNICIAN', 'SERVICE_CENTER_MANAGER'],
   '/tanks':      ['FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER'],
-  '/fuel':       ['FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER'],
+  // FIXED: Added FUEL_ATTENDANT to /fuel
+  '/fuel':       ['FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER', 'FUEL_ATTENDANT'],
   '/payables':   ['ACCOUNTS_FINANCE_OFFICER'],
-  '/salary/my-payslips': ['TECHNICIAN', 'SERVICE_CENTER_MANAGER', 'FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER', 'INVENTORY_MANAGER', 'CUSTOMER_RELATIONS_OFFICER'],
+  // FIXED: Added FUEL_ATTENDANT to /salary/my-payslips
+  '/salary/my-payslips': ['TECHNICIAN', 'SERVICE_CENTER_MANAGER', 'FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER', 'INVENTORY_MANAGER', 'CUSTOMER_RELATIONS_OFFICER', 'FUEL_ATTENDANT'],
   '/salary':     ['ACCOUNTS_FINANCE_OFFICER'],
   '/deliveries': ['SUPPLIER', 'INVENTORY_MANAGER'],
   '/parts':      ['SUPPLIER', 'INVENTORY_MANAGER'],
-  '/rma':        ['SUPPLIER', 'ACCOUNTS_FINANCE_OFFICER', 'INVENTORY_MANAGER'], // <-- FIX: Added INVENTORY_MANAGER
+  '/rma':        ['SUPPLIER', 'ACCOUNTS_FINANCE_OFFICER', 'INVENTORY_MANAGER'],
   '/support':    ['CUSTOMER', 'TECHNICIAN', 'FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER', 'SUPPLIER'],
   '/complaints': ['CUSTOMER_RELATIONS_OFFICER', 'ACCOUNTS_FINANCE_OFFICER', 'SERVICE_CENTER_MANAGER', 'FUEL_STATION_SUPERVISOR'],
   '/roster':     ['TECHNICIAN', 'FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER', 'INVENTORY_MANAGER', 'CUSTOMER_RELATIONS_OFFICER', 'SERVICE_CENTER_MANAGER'],
@@ -36,14 +38,12 @@ export function middleware(request: NextRequest) {
 
     let hasAccess = false;
     for (const [route, allowedRoles] of Object.entries(rolePermissions)) {
-      // Use exact match or proper subpath check, giving priority to specific routes like /salary/my-payslips
       if (path === route || (route !== '/salary' && path.startsWith(route))) {
         if (allowedRoles.includes(role) || role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN' || role === 'EXECUTIVE_OWNER') {
           hasAccess = true;
         }
         break;
       }
-      // Fallback for general /salary path
       if (path.startsWith('/salary') && route === '/salary') {
         if (allowedRoles.includes(role) || role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN' || role === 'EXECUTIVE_OWNER') {
           hasAccess = true;

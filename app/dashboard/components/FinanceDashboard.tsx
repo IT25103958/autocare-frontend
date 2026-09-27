@@ -1,333 +1,1044 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import axios from "axios";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
+import axios, { AxiosInstance } from "axios";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, CartesianGrid,
-  LineChart, Line
+  LineChart, Line,
 } from "recharts";
 
-// FIXED: Robust Interface to handle Spring Boot JSON serialization quirks
+// =============================================================================
+// CONFIG
+// Reads from env so this actually works once deployed, not just on localhost.
+// Add NEXT_PUBLIC_API_BASE_URL to your .env.local / hosting provider's env vars.
+// =============================================================================
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
+
+const api: AxiosInstance = axios.create({ baseURL: API_BASE_URL });
+
+api.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const token = window.localStorage.getItem("jwtToken");
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// =============================================================================
+// TYPES
+// Real interfaces instead of `any` — catches backend shape drift at compile time.
+// =============================================================================
+interface Booking {
+  id: number;
+  status: string;
+  totalPartsCost?: number;
+}
+
+interface POSRecord {
+  id: number;
+  totalRevenue?: number;
+}
+
+interface Payable {
+  id: number;
+  totalInvoiceAmount?: number;
+  amountPaid?: number;
+  supplyCategory?: string;
+  status?: string;
+}
+
+interface RmaCredit {
+  id: number;
+  totalValue?: number;
+  status?: string;
+  financialStatus?: string;
+}
+
 interface PricingRule {
   id: number;
   ruleName: string;
-  ruleType: string;
+  ruleType: "TAX" | "DISCOUNT" | string;
   percentage: number;
   active?: boolean;
   isActive?: boolean;
 }
 
+interface ShiftHandover {
+  id: number;
+  pumpNumber: number;
+  attendantUsername: string;
+  supervisorUsername: string;
+  shiftStartedAt: string;
+  shiftEndedAt: string;
+  expectedCash: number;
+  declaredCash: number;
+  variance: number;
+  status: string;
+}
+
+interface FetchErrors {
+  bookings?: boolean;
+  pos?: boolean;
+  payables?: boolean;
+  rma?: boolean;
+  rules?: boolean;
+  handovers?: boolean;
+}
+
+type ToastType = "success" | "error" | "info";
+interface ToastItem {
+  id: number;
+  type: ToastType;
+  message: string;
+}
+
+// =============================================================================
+// SMALL, DEPENDENCY-FREE ICON SET
+// Kept inline so this file has zero new npm installs to worry about.
+// =============================================================================
+const iconStroke = { strokeLinecap: "round" as const, strokeLinejoin: "round" as const, strokeWidth: 2 };
+
+function IconRefresh({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+    </svg>
+  );
+}
+function IconAlertTriangle({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M12 9v3.75m0 3.75h.008v.008H12v-.008zM10.29 3.86l-8.18 14.16A1.5 1.5 0 003.5 20.5h17a1.5 1.5 0 001.39-2.48L13.71 3.86a1.5 1.5 0 00-2.42 0z" />
+    </svg>
+  );
+}
+function IconCheckCircle({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M9 12.75l1.5 1.5 3.75-4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+function IconXCircle({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M9.75 9.75l4.5 4.5m0-4.5l-4.5 4.5M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+function IconTrash({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
+  );
+}
+function IconSearch({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M21 21l-4.35-4.35m1.6-5.4a7 7 0 11-14 0 7 7 0 0114 0z" />
+    </svg>
+  );
+}
+function IconDownload({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M7.5 10.5L12 15m0 0l4.5-4.5M12 15V3" />
+    </svg>
+  );
+}
+function IconInfo({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M11.25 11.25h.75v4.5h.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zM12 8.25h.008v.008H12V8.25z" />
+    </svg>
+  );
+}
+function IconChevronLeft({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M15.75 19.5L8.25 12l7.5-7.5" />
+    </svg>
+  );
+}
+function IconChevronRight({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+    </svg>
+  );
+}
+function IconWallet({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M21 12v5.25A2.25 2.25 0 0118.75 19.5H5.25A2.25 2.25 0 013 17.25V6.75A2.25 2.25 0 015.25 4.5h9M21 12a2.25 2.25 0 00-2.25-2.25H15a2.25 2.25 0 000 4.5h3.75A2.25 2.25 0 0021 12z" />
+    </svg>
+  );
+}
+function IconClock({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M12 6v6l4 2M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+function IconFileText({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path {...iconStroke} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5A3.375 3.375 0 0010.125 2.25H8.25m5.231 13.481L15 14.25m-3.75 3.75l1.5-1.5m0 0l1.5 1.5m-1.5-1.5V21M8.25 2.25H4.5v19.5h15V9.75z" />
+    </svg>
+  );
+}
+
+// =============================================================================
+// SMALL REUSABLE HOOK: client-side pagination for a filtered list
+// =============================================================================
+function usePagination<T>(items: T[], pageSize: number) {
+  const [page, setPage] = useState(1);
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const clampedPage = Math.min(page, totalPages);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [totalPages, page]);
+
+  const pageItems = useMemo(
+    () => items.slice((clampedPage - 1) * pageSize, clampedPage * pageSize),
+    [items, clampedPage, pageSize]
+  );
+
+  return { page: clampedPage, setPage, totalPages, pageItems };
+}
+
+// Renders children into document.body instead of wherever this component
+// happens to sit in the tree. Without this, a `position: fixed` toast or
+// modal can get silently trapped by a `transform`/`filter`/`will-change` on
+// ANY ancestor (common with page-transition wrappers, sticky layouts, etc.)
+// — the browser then treats "fixed" as relative to that ancestor instead of
+// the viewport, which is why toasts can end up pinned in the wrong corner.
+function usePortalTarget() {
+  const [target, setTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setTarget(document.body);
+  }, []);
+  return target;
+}
+
+function exportHandoversCSV(rows: ShiftHandover[]) {
+  const headers = ["Pump", "Attendant", "Supervisor", "Expected Cash", "Declared Cash", "Variance", "Status"];
+  const body = rows.map((h) => [
+    h.pumpNumber, h.attendantUsername, h.supervisorUsername, h.expectedCash, h.declaredCash, h.variance, h.status,
+  ]);
+  const csv = [headers, ...body]
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `shift-handovers-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+// =============================================================================
+// COMPONENT
+// =============================================================================
 export default function FinanceDashboard({ userName }: { userName?: string }) {
-  const [data, setData] = useState({ bookings: [], pos: [], payables: [] });
+  const [data, setData] = useState<{ bookings: Booking[]; pos: POSRecord[]; payables: Payable[]; rma: RmaCredit[] }>({
+    bookings: [], pos: [], payables: [], rma: [],
+  });
   const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
+  const [handovers, setHandovers] = useState<ShiftHandover[]>([]);
   const [newRule, setNewRule] = useState({ ruleName: "", ruleType: "TAX", percentage: 0 });
+
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [fetchErrors, setFetchErrors] = useState<FetchErrors>({});
 
-  const getAuthHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem("jwtToken")}` } });
+  const [savingRule, setSavingRule] = useState(false);
+  const [pendingRuleIds, setPendingRuleIds] = useState<Set<number>>(new Set());
+  const [pendingHandoverIds, setPendingHandoverIds] = useState<Set<number>>(new Set());
 
-  const fetchAll = async () => {
-    try {
-      const [book, pos, pay, rules] = await Promise.all([
-        axios.get("http://localhost:8080/api/bookings", getAuthHeader()).catch(() => ({ data: [] })),
-        axios.get("http://localhost:8080/api/pos/history", getAuthHeader()).catch(() => ({ data: [] })),
-        axios.get("http://localhost:8080/api/payables/outstanding", getAuthHeader()).catch(() => ({ data: [] })),
-        axios.get("http://localhost:8080/api/pricing-rules", getAuthHeader()).catch(() => ({ data: [] }))
-      ]);
-      setData({ bookings: book.data, pos: pos.data, payables: pay.data });
-      setPricingRules(rules.data);
-    } catch (err) {
-      console.error("Dashboard data fetch failed");
-    } finally {
-      setLoading(false);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [confirmDelete, setConfirmDelete] = useState<PricingRule | null>(null);
+
+  const [ruleSearch, setRuleSearch] = useState("");
+  const [handoverSearch, setHandoverSearch] = useState("");
+  const [handoverStatusFilter, setHandoverStatusFilter] = useState<"ALL" | "PENDING" | "APPROVED">("ALL");
+
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null);
+  const portalTarget = usePortalTarget();
+
+  const pushToast = useCallback((type: ToastType, message: string) => {
+    setToasts((prev) => {
+      // Don't stack an identical toast on top of one that's already showing —
+      // this is what was causing the pile of repeated "couldn't load" toasts.
+      if (prev.some((t) => t.type === type && t.message === message)) return prev;
+      const id = Date.now() + Math.random();
+      window.setTimeout(() => {
+        setToasts((p) => p.filter((t) => t.id !== id));
+      }, 4500);
+      return [...prev, { id, type, message }];
+    });
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // DATA FETCHING — each resource fails independently and is reported, instead
+  // of silently collapsing into an empty array with no trace for the user.
+  //
+  // IMPORTANT: this reads the full ledger from GET /api/payables, not
+  // GET /api/payables/outstanding. The /outstanding endpoint drops an invoice
+  // the instant it's fully paid — so "Expenses Paid" and "Net Cashflow" below
+  // were silently losing that invoice's entire paid amount from the totals
+  // the moment it got settled, making it look like paying off a debt in full
+  // *improved* cashflow. Also pulls settled RMA credits so "revenue" is
+  // defined the same way here as on the Payables page.
+  // ---------------------------------------------------------------------------
+  const fetchAll = useCallback(async (isManualRefresh = false) => {
+    if (isManualRefresh) setRefreshing(true);
+    else setLoading(true);
+
+    const [bookRes, posRes, payRes, rmaRes, rulesRes, handRes] = await Promise.allSettled([
+      api.get<Booking[]>("/api/bookings"),
+      api.get<POSRecord[]>("/api/pos/history"),
+      api.get<Payable[]>("/api/payables"),
+      api.get<RmaCredit[]>("/api/rma"),
+      api.get<PricingRule[]>("/api/pricing-rules"),
+      api.get<ShiftHandover[]>("/api/pumps/handovers"),
+    ]);
+
+    const errors: FetchErrors = {};
+
+    const bookings = bookRes.status === "fulfilled" ? bookRes.value.data : (errors.bookings = true, []);
+    const pos = posRes.status === "fulfilled" ? posRes.value.data : (errors.pos = true, []);
+    const payables = payRes.status === "fulfilled" ? payRes.value.data : (errors.payables = true, []);
+    const rma = rmaRes.status === "fulfilled" ? rmaRes.value.data : (errors.rma = true, []);
+    const rules = rulesRes.status === "fulfilled" ? rulesRes.value.data : (errors.rules = true, []);
+    const hand = handRes.status === "fulfilled" ? handRes.value.data : (errors.handovers = true, []);
+
+    setData({ bookings, pos, payables, rma });
+    setPricingRules(rules);
+    setHandovers(hand);
+    setFetchErrors(errors);
+    setLastUpdated(new Date());
+    setLoading(false);
+    setRefreshing(false);
+
+    if (Object.keys(errors).length > 0) {
+      pushToast("error", "Some panels couldn't load. Check the API connection and retry.");
+    } else if (isManualRefresh) {
+      pushToast("success", "Dashboard refreshed.");
     }
-  };
+  }, [pushToast]);
 
   useEffect(() => {
     fetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleAddRule = async (e: React.FormEvent) => {
+  // ---------------------------------------------------------------------------
+  // PRICING RULE ACTIONS
+  // ---------------------------------------------------------------------------
+  const handleAddRule = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newRule.ruleName.trim() || newRule.percentage <= 0) {
+      pushToast("error", "Enter a rule name and a rate greater than 0.");
+      return;
+    }
+    setSavingRule(true);
     try {
-      await axios.post("http://localhost:8080/api/pricing-rules", newRule, getAuthHeader());
+      await api.post("/api/pricing-rules", newRule);
       setNewRule({ ruleName: "", ruleType: "TAX", percentage: 0 });
-      fetchAll();
-    } catch (error) {
-      alert("Failed to add pricing rule.");
+      pushToast("success", `"${newRule.ruleName}" was added and is now live on new invoices.`);
+      await fetchAll();
+    } catch {
+      pushToast("error", "Couldn't save the pricing rule. Please try again.");
+    } finally {
+      setSavingRule(false);
     }
-  };
+  }, [newRule, fetchAll, pushToast]);
 
-  const handleToggleRule = async (id: number) => {
+  const handleToggleRule = useCallback(async (rule: PricingRule) => {
+    setPendingRuleIds((prev) => new Set(prev).add(rule.id));
     try {
-      await axios.put(`http://localhost:8080/api/pricing-rules/${id}/toggle`, {}, getAuthHeader());
-      fetchAll();
-    } catch (error) {
-      alert("Failed to toggle pricing rule.");
+      await api.put(`/api/pricing-rules/${rule.id}/toggle`, {});
+      const isActive = rule.active !== undefined ? rule.active : rule.isActive;
+      pushToast("success", `"${rule.ruleName}" is now ${isActive ? "inactive" : "active"}.`);
+      await fetchAll();
+    } catch {
+      pushToast("error", `Couldn't update "${rule.ruleName}". Please try again.`);
+    } finally {
+      setPendingRuleIds((prev) => {
+        const next = new Set(prev);
+        next.delete(rule.id);
+        return next;
+      });
     }
-  };
+  }, [fetchAll, pushToast]);
 
-  const handleDeleteRule = async (id: number) => {
+  const handleDeleteRule = useCallback(async (rule: PricingRule) => {
+    setPendingRuleIds((prev) => new Set(prev).add(rule.id));
     try {
-      await axios.delete(`http://localhost:8080/api/pricing-rules/${id}`, getAuthHeader());
-      fetchAll();
-    } catch (error) {
-      alert("Failed to delete pricing rule.");
+      await api.delete(`/api/pricing-rules/${rule.id}`);
+      pushToast("success", `"${rule.ruleName}" was deleted.`);
+      await fetchAll();
+    } catch {
+      pushToast("error", `Couldn't delete "${rule.ruleName}". Please try again.`);
+    } finally {
+      setPendingRuleIds((prev) => {
+        const next = new Set(prev);
+        next.delete(rule.id);
+        return next;
+      });
+      setConfirmDelete(null);
     }
-  };
+  }, [fetchAll, pushToast]);
 
+  // ---------------------------------------------------------------------------
+  // SHIFT HANDOVER ACTIONS
+  // ---------------------------------------------------------------------------
+  const handleApproveHandover = useCallback(async (h: ShiftHandover) => {
+    setPendingHandoverIds((prev) => new Set(prev).add(h.id));
+    try {
+      await api.put(`/api/pumps/handovers/${h.id}/approve`, {});
+      pushToast("success", `Pump #${h.pumpNumber}'s handover was approved and cleared.`);
+      await fetchAll();
+    } catch {
+      pushToast("error", `Couldn't approve Pump #${h.pumpNumber}'s handover. Please try again.`);
+    } finally {
+      setPendingHandoverIds((prev) => {
+        const next = new Set(prev);
+        next.delete(h.id);
+        return next;
+      });
+    }
+  }, [fetchAll, pushToast]);
+
+  // ---------------------------------------------------------------------------
+  // DERIVED ANALYTICS
+  // ---------------------------------------------------------------------------
   const analytics = useMemo(() => {
-    const settledWorkshop = data.bookings.filter((b: any) => b.status === "PAID").reduce((sum, b: any) => sum + (b.totalPartsCost || 0), 0);
-    const pendingWorkshop = data.bookings.filter((b: any) => b.status === "COMPLETED").reduce((sum, b: any) => sum + (b.totalPartsCost || 0), 0);
-    const posRev = data.pos.reduce((sum, p: any) => sum + (p.totalRevenue || 0), 0);
+    const roundMoney = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 
-    const totalGrossRevenue = settledWorkshop + posRev;
+    const settledWorkshop = data.bookings
+      .filter((b) => b.status === "PAID")
+      .reduce((sum, b) => sum + (b.totalPartsCost || 0), 0);
+    const pendingWorkshop = data.bookings
+      .filter((b) => b.status === "COMPLETED")
+      .reduce((sum, b) => sum + (b.totalPartsCost || 0), 0);
+    const posRev = data.pos.reduce((sum, p) => sum + (p.totalRevenue || 0), 0);
+    // Settled RMA credits count as recovered cash, same definition used on the
+    // Payables page — kept consistent so the two dashboards never disagree on
+    // what "revenue" means for the same underlying data.
+    const settledRmaRev = data.rma
+      .filter((r) => r.financialStatus === "SETTLED")
+      .reduce((sum, r) => sum + (r.totalValue || 0), 0);
+
+    const totalGrossRevenue = settledWorkshop + posRev + settledRmaRev;
     const totalPendingCollection = pendingWorkshop;
 
-    const totalSupplierDebt = data.payables.reduce((sum, p: any) => sum + ((p.totalInvoiceAmount || 0) - (p.amountPaid || 0)), 0);
-    const totalPaidOut = data.payables.reduce((sum, p: any) => sum + (p.amountPaid || 0), 0);
-
+    // Only invoices with a genuine remaining balance count toward debt — a
+    // fully paid invoice (balance <= 0, allowing for floating point noise)
+    // contributes 0, not a small negative or positive rounding artifact.
+    const totalSupplierDebt = data.payables.reduce((sum, p) => {
+      const balance = roundMoney((p.totalInvoiceAmount || 0) - (p.amountPaid || 0));
+      return sum + (balance > 0.005 ? balance : 0);
+    }, 0);
+    // Now correctly includes every invoice's lifetime amountPaid, fully-paid
+    // ones included, since `data.payables` is the full ledger (see fetchAll).
+    // Before this fix, paying an invoice off in full removed it from the
+    // /outstanding endpoint this figure used to read from — silently dropping
+    // that money from "Expenses Paid" and inflating Net Cashflow as a result.
+    const totalPaidOut = data.payables.reduce((sum, p) => sum + (p.amountPaid || 0), 0);
     const netCashflow = totalGrossRevenue - totalPaidOut;
+    const outstandingPayablesCount = data.payables.filter((p) => {
+      const balance = roundMoney((p.totalInvoiceAmount || 0) - (p.amountPaid || 0));
+      return balance > 0.005;
+    }).length;
 
     const revenueStreamData = [
       { name: "Retail POS", amount: posRev, fill: "#3b82f6" },
       { name: "Workshop (Paid)", amount: settledWorkshop, fill: "#10b981" },
-      { name: "Workshop (Pending)", amount: pendingWorkshop, fill: "#f59e0b" }
+      { name: "Workshop (Pending)", amount: pendingWorkshop, fill: "#f59e0b" },
     ];
 
-    const expenseCategories = data.payables.reduce((acc: any, p: any) => {
-      const balance = (p.totalInvoiceAmount || 0) - (p.amountPaid || 0);
-      if (balance > 0) acc[p.supplyCategory] = (acc[p.supplyCategory] || 0) + balance;
-      return acc;
-    }, {});
-    const debtPieData = Object.keys(expenseCategories).map(key => ({ name: key.replace('_', ' '), value: expenseCategories[key] }));
+    const expenseCategories: Record<string, number> = {};
+    data.payables.forEach((p) => {
+      const balance = roundMoney((p.totalInvoiceAmount || 0) - (p.amountPaid || 0));
+      if (balance > 0.005) {
+        const key = p.supplyCategory || "Uncategorized";
+        expenseCategories[key] = (expenseCategories[key] || 0) + balance;
+      }
+    });
+    const debtPieData = Object.entries(expenseCategories).map(([name, value]) => ({
+      name: name.replace(/_/g, " "),
+      value,
+    }));
 
     const cashFlowPipeline = [
       { name: "Gross Income", value: totalGrossRevenue, fill: "#10b981" },
       { name: "Expenses Paid", value: totalPaidOut, fill: "#3b82f6" },
-      { name: "Pending Debt", value: totalSupplierDebt, fill: "#ef4444" }
+      { name: "Pending Debt", value: totalSupplierDebt, fill: "#ef4444" },
     ];
 
+    // NOTE: no time-series endpoint exists yet on the backend, so this is a
+    // modeled distribution of the day's total against typical fuel-station
+    // traffic shape — not measured hourly revenue. Labeled as such in the UI
+    // below so nobody mistakes it for real intraday data.
     const intradayData = [
-      { time: '00:00', revenue: totalGrossRevenue * 0.01, average: totalGrossRevenue * 0.02 },
-      { time: '04:00 AM', revenue: totalGrossRevenue * 0.02, average: totalGrossRevenue * 0.03 },
-      { time: '08:00 AM', revenue: totalGrossRevenue * 0.15, average: totalGrossRevenue * 0.10 },
-      { time: '12:00 PM', revenue: totalGrossRevenue * 0.45, average: totalGrossRevenue * 0.35 },
-      { time: '04:00 PM', revenue: totalGrossRevenue * 0.25, average: totalGrossRevenue * 0.30 },
-      { time: '08:00 PM', revenue: totalGrossRevenue * 0.08, average: totalGrossRevenue * 0.15 },
-      { time: '11:59 PM', revenue: totalGrossRevenue * 0.04, average: totalGrossRevenue * 0.05 },
+      { time: "12 AM", modeled: totalGrossRevenue * 0.01 },
+      { time: "4 AM", modeled: totalGrossRevenue * 0.02 },
+      { time: "8 AM", modeled: totalGrossRevenue * 0.15 },
+      { time: "12 PM", modeled: totalGrossRevenue * 0.45 },
+      { time: "4 PM", modeled: totalGrossRevenue * 0.25 },
+      { time: "8 PM", modeled: totalGrossRevenue * 0.08 },
+      { time: "11:59 PM", modeled: totalGrossRevenue * 0.04 },
     ];
 
     return {
       totalGrossRevenue, totalPendingCollection, totalSupplierDebt, netCashflow,
-      revenueStreamData, debtPieData, cashFlowPipeline, intradayData
+      outstandingPayablesCount, revenueStreamData, debtPieData, cashFlowPipeline, intradayData,
     };
   }, [data]);
 
-  const PIE_COLORS = ['#0f172a', '#2563eb', '#38bdf8', '#94a3b8', '#1e293b'];
-  const formatLKR = (amt: number) => new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR' }).format(amt);
+  const PIE_COLORS = ["#0f172a", "#2563eb", "#38bdf8", "#94a3b8", "#1e293b"];
+  const formatLKR = useCallback(
+    (amt: number) => new Intl.NumberFormat("en-LK", { style: "currency", currency: "LKR" }).format(amt || 0),
+    []
+  );
 
-  if (loading) return <div className="animate-pulse h-96 bg-slate-100 rounded-[2rem] m-10"></div>;
+  // ---------------------------------------------------------------------------
+  // TABLE FILTERING + PAGINATION
+  // ---------------------------------------------------------------------------
+  const filteredRules = useMemo(() => {
+    const q = ruleSearch.trim().toLowerCase();
+    if (!q) return pricingRules;
+    return pricingRules.filter((r) => r.ruleName.toLowerCase().includes(q) || r.ruleType.toLowerCase().includes(q));
+  }, [pricingRules, ruleSearch]);
+  const rulesPagination = usePagination(filteredRules, 6);
+
+  const filteredHandovers = useMemo(() => {
+    const q = handoverSearch.trim().toLowerCase();
+    return handovers.filter((h) => {
+      const matchesSearch =
+        !q ||
+        h.attendantUsername.toLowerCase().includes(q) ||
+        h.supervisorUsername.toLowerCase().includes(q) ||
+        String(h.pumpNumber).includes(q);
+      const matchesStatus =
+        handoverStatusFilter === "ALL" ||
+        (handoverStatusFilter === "APPROVED" ? h.status === "APPROVED" : h.status !== "APPROVED");
+      return matchesSearch && matchesStatus;
+    });
+  }, [handovers, handoverSearch, handoverStatusFilter]);
+  const handoversPagination = usePagination(filteredHandovers, 6);
+
+  // ---------------------------------------------------------------------------
+  // LOADING SKELETON — mirrors the real layout instead of one gray box
+  // ---------------------------------------------------------------------------
+  if (loading) {
+    return (
+      <div className="p-6 lg:p-10 max-w-7xl mx-auto space-y-8 bg-slate-50 min-h-[calc(100vh-4rem)]" aria-busy="true" aria-label="Loading finance dashboard">
+        <div className="h-40 bg-slate-200 rounded-[2rem] animate-pulse" />
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-28 bg-slate-200 rounded-3xl animate-pulse" />
+          ))}
+        </div>
+        <div className="grid lg:grid-cols-2 gap-8">
+          <div className="h-80 bg-slate-200 rounded-3xl animate-pulse" />
+          <div className="h-80 bg-slate-200 rounded-3xl animate-pulse" />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 lg:p-10 max-w-7xl mx-auto space-y-8 bg-slate-50 min-h-[calc(100vh-4rem)] animate-fade-in-up">
+    <div className="p-6 lg:p-10 max-w-7xl mx-auto space-y-8 bg-slate-50 min-h-[calc(100vh-4rem)]">
 
-      <div className="bg-slate-900 p-8 lg:p-10 rounded-[2rem] shadow-2xl text-white relative overflow-hidden flex flex-col md:flex-row justify-between items-center gap-6">
+      {/* TOASTS — portaled to <body> so they always sit fixed to the real
+          viewport, no matter what CSS a parent layout applies. */}
+      {portalTarget && createPortal(
+        <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-2 w-80 max-w-[90vw]" role="status" aria-live="polite">
+          {toasts.map((t) => (
+            <div
+              key={t.id}
+              className={`flex items-start gap-3 px-4 py-3 rounded-2xl shadow-xl border text-sm font-semibold ${
+                t.type === "success" ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                : t.type === "error" ? "bg-red-50 border-red-200 text-red-800"
+                : "bg-slate-50 border-slate-200 text-slate-800"
+              }`}
+            >
+              {t.type === "success" ? <IconCheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                : t.type === "error" ? <IconAlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                : <IconInfo className="w-5 h-5 flex-shrink-0 mt-0.5" />}
+              <span className="flex-1">{t.message}</span>
+              <button onClick={() => dismissToast(t.id)} aria-label="Dismiss notification" className="text-current opacity-60 hover:opacity-100">
+                <IconXCircle className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>,
+        portalTarget
+      )}
+
+      {/* CONFIRM DELETE MODAL — also portaled, for the same reason. */}
+      {portalTarget && confirmDelete && createPortal(
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-delete-title"
+          onKeyDown={(e) => { if (e.key === "Escape") setConfirmDelete(null); }}
+        >
+          <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6">
+            <div className="w-11 h-11 rounded-full bg-red-50 text-red-500 flex items-center justify-center mb-4">
+              <IconAlertTriangle className="w-6 h-6" />
+            </div>
+            <h3 id="confirm-delete-title" className="text-lg font-black text-slate-900 mb-1.5">Delete this rule?</h3>
+            <p className="text-sm text-slate-500 font-medium mb-6">
+              "{confirmDelete.ruleName}" will stop applying to new invoices immediately. This can't be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                ref={cancelButtonRef}
+                onClick={() => setConfirmDelete(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteRule(confirmDelete)}
+                disabled={pendingRuleIds.has(confirmDelete.id)}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-bold text-sm hover:bg-red-700 disabled:opacity-60 transition-colors"
+              >
+                {pendingRuleIds.has(confirmDelete.id) ? "Deleting..." : "Delete rule"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        portalTarget
+      )}
+
+      {/* FETCH ERROR BANNER */}
+      {Object.keys(fetchErrors).length > 0 && (
+        <div className="flex items-center justify-between gap-4 px-6 py-4 bg-red-50 border border-red-200 rounded-2xl">
+          <div className="flex items-center gap-3">
+            <IconAlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
+            <p className="text-sm font-bold text-red-700">
+              Couldn't load: {Object.keys(fetchErrors).join(", ")}. Figures below may be incomplete.
+            </p>
+          </div>
+          <button
+            onClick={() => fetchAll(true)}
+            className="text-xs font-black uppercase tracking-widest text-red-700 hover:text-red-900 whitespace-nowrap"
+          >
+            Retry now
+          </button>
+        </div>
+      )}
+
+      {/* HERO */}
+      <div className="bg-slate-900 p-8 lg:p-10 rounded-[2rem] shadow-2xl text-white relative overflow-hidden flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div className="relative z-10">
           <h2 className="text-3xl lg:text-4xl font-black tracking-tight mb-2">Executive Finance Hub</h2>
-          <p className="text-slate-400 font-medium text-sm lg:text-base">Master analytics combining Workshop Revenue, Retail POS, and Accounts Payable.</p>
+          <p className="text-slate-400 font-medium text-sm lg:text-base max-w-md">
+            {userName ? `Welcome back, ${userName}. ` : ""}Master analytics combining workshop revenue, retail POS, and accounts payable.
+          </p>
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              onClick={() => fetchAll(true)}
+              disabled={refreshing}
+              className="inline-flex items-center gap-2 px-3.5 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-colors disabled:opacity-60"
+            >
+              <IconRefresh className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
+              {refreshing ? "Refreshing..." : "Refresh data"}
+            </button>
+            {lastUpdated && (
+              <span className="text-[11px] text-slate-500 font-semibold">
+                Updated {lastUpdated.toLocaleTimeString()}
+              </span>
+            )}
+          </div>
         </div>
         <div className="relative z-10 text-right">
           <p className="text-xs font-black uppercase tracking-widest text-emerald-400 mb-1">Net Cashflow Position</p>
           <p className="text-4xl lg:text-5xl font-black text-white drop-shadow-md">{formatLKR(analytics.netCashflow)}</p>
         </div>
-        <div className="absolute -top-32 -right-32 w-[30rem] h-[30rem] bg-blue-600/20 rounded-full blur-[100px] pointer-events-none"></div>
+        <div className="absolute -top-32 -right-32 w-[30rem] h-[30rem] bg-blue-600/20 rounded-full blur-[100px] pointer-events-none" />
       </div>
 
+      {/* KPI CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-lg shadow-slate-200/50 hover:-translate-y-1 transition-transform">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Total Gross Revenue</h3>
-          <div className="text-3xl font-black text-slate-900">{formatLKR(analytics.totalGrossRevenue)}</div>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-lg shadow-slate-200/50 hover:-translate-y-1 transition-transform">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Current Supplier Debt</h3>
-          <div className="text-3xl font-black text-slate-900">{formatLKR(analytics.totalSupplierDebt)}</div>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-lg shadow-slate-200/50 hover:-translate-y-1 transition-transform">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Pending Collections</h3>
-          <div className="text-3xl font-black text-slate-900">{formatLKR(analytics.totalPendingCollection)}</div>
-        </div>
-        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-lg shadow-slate-200/50 hover:-translate-y-1 transition-transform">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Accounts Payable Ledger</h3>
-          <div className="text-3xl font-black text-slate-900">{data.payables.filter((p: any) => p.status !== "PAID").length}</div>
-        </div>
+        <KpiCard icon={<IconWallet className="w-5 h-5" />} label="Total Gross Revenue" value={formatLKR(analytics.totalGrossRevenue)} accent="text-emerald-600 bg-emerald-50" />
+        <KpiCard icon={<IconAlertTriangle className="w-5 h-5" />} label="Current Supplier Debt" value={formatLKR(analytics.totalSupplierDebt)} accent="text-red-600 bg-red-50" />
+        <KpiCard icon={<IconClock className="w-5 h-5" />} label="Pending Collections" value={formatLKR(analytics.totalPendingCollection)} accent="text-amber-600 bg-amber-50" />
+        <KpiCard icon={<IconFileText className="w-5 h-5" />} label="Accounts Payable Ledger" value={String(analytics.outstandingPayablesCount)} sub="unpaid invoices" accent="text-blue-600 bg-blue-50" />
       </div>
 
+      {/* CHARTS ROW 1 */}
       <div className="grid lg:grid-cols-2 gap-8">
         <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40">
-          <div className="mb-6 flex justify-between items-end">
-            <div>
-              <h3 className="text-lg font-black text-slate-900">Intraday Cash Flow</h3>
-            </div>
+          <div className="mb-6 flex justify-between items-start gap-3">
+            <h3 className="text-lg font-black text-slate-900">Intraday Cash Flow</h3>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-500 rounded-full text-[10px] font-black uppercase tracking-widest" title="Modeled from today's total using a typical station traffic curve — not a live hourly feed.">
+              <IconInfo className="w-3 h-3" /> Modeled estimate
+            </span>
           </div>
-          <ResponsiveContainer width="100%" height={320}>
+          <ResponsiveContainer width="100%" height={300}>
             <LineChart data={analytics.intradayData} margin={{ top: 10, right: 10, left: 20, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="time" tick={{ fontSize: 11, fill: '#64748b', fontWeight: 'bold' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#64748b', fontWeight: 'bold' }} axisLine={false} tickLine={false} tickFormatter={(val) => `${val / 1000}k`} />
-              <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)' }} formatter={(value: number, name: string) => [formatLKR(value), name === 'revenue' ? "Today" : "Average"]} />
-              <Line type="monotone" dataKey="revenue" stroke="#3b82f6" strokeWidth={4} dot={{ r: 4, fill: '#3b82f6', strokeWidth: 2, stroke: '#fff' }} activeDot={{ r: 6 }} />
-              <Line type="monotone" dataKey="average" stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 5" dot={false} activeDot={{ r: 4 }} />
+              <XAxis dataKey="time" tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} tickFormatter={(val) => `${val / 1000}k`} />
+              <Tooltip contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value: number) => [formatLKR(value), "Estimated"]} />
+              <Line type="monotone" dataKey="modeled" stroke="#3b82f6" strokeWidth={4} dot={{ r: 4, fill: "#3b82f6", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 6 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
 
         <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40 flex flex-col">
-          <div className="mb-2">
-            <h3 className="text-lg font-black text-slate-900">Active Debt by Category</h3>
-          </div>
+          <h3 className="text-lg font-black text-slate-900 mb-2">Active Debt by Category</h3>
           <div className="flex-1 flex items-center justify-center">
             {analytics.debtPieData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={320}>
+              <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
                   <Pie data={analytics.debtPieData} innerRadius={90} outerRadius={130} paddingAngle={4} dataKey="value" stroke="none">
-                    {analytics.debtPieData.map((_, index) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
+                    {analytics.debtPieData.map((_, index) => <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
                   </Pie>
-                  <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)' }} formatter={(value: number) => [formatLKR(value), "Unpaid Debt"]} />
-                  <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '11px', fontWeight: '900', color: '#0f172a', textTransform: 'uppercase', letterSpacing: '1px' }} />
+                  <Tooltip contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value: number) => [formatLKR(value), "Unpaid Debt"]} />
+                  <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: "11px", fontWeight: 900, color: "#0f172a", textTransform: "uppercase", letterSpacing: "1px" }} />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <div className="text-center text-emerald-500 font-black tracking-widest uppercase text-sm">Ledger is totally clear</div>
+              <div className="text-center text-emerald-600 font-black tracking-widest uppercase text-sm">Ledger is totally clear</div>
             )}
           </div>
         </div>
       </div>
 
+      {/* CHARTS ROW 2 */}
       <div className="grid lg:grid-cols-2 gap-8">
         <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40">
-          <div className="mb-8">
-            <h3 className="text-lg font-black text-slate-900">Revenue Streams Breakdown</h3>
-          </div>
+          <h3 className="text-lg font-black text-slate-900 mb-8">Revenue Streams Breakdown</h3>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={analytics.revenueStreamData} margin={{ top: 0, right: 10, left: 20, bottom: 0 }} maxBarSize={60}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#64748b', fontWeight: 'bold' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: '#64748b', fontWeight: 'bold' }} axisLine={false} tickLine={false} tickFormatter={(val) => `Rs.${val / 1000}k`} />
-              <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)' }} formatter={(value: number) => [formatLKR(value), "Amount"]} />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} tickFormatter={(val) => `Rs.${val / 1000}k`} />
+              <Tooltip cursor={{ fill: "#f8fafc" }} contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value: number) => [formatLKR(value), "Amount"]} />
               <Bar dataKey="amount" radius={[8, 8, 0, 0]}>
-                {analytics.revenueStreamData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                {analytics.revenueStreamData.map((entry, index) => <Cell key={index} fill={entry.fill} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
 
         <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40">
-          <div className="mb-8">
-            <h3 className="text-lg font-black text-slate-900">Master Cash Flow Pipeline</h3>
-          </div>
+          <h3 className="text-lg font-black text-slate-900 mb-8">Master Cash Flow Pipeline</h3>
           <ResponsiveContainer width="100%" height={280}>
             <BarChart data={analytics.cashFlowPipeline} margin={{ top: 0, right: 30, left: 10, bottom: 0 }} layout="vertical" maxBarSize={50}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-              <XAxis type="number" tick={{ fontSize: 11, fill: '#64748b', fontWeight: 'bold' }} axisLine={false} tickLine={false} tickFormatter={(val) => `Rs.${val / 1000}k`} />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#0f172a', fontWeight: '900', textTransform: 'uppercase' }} axisLine={false} tickLine={false} width={130} />
-              <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 25px -5px rgb(0 0 0 / 0.1)' }} formatter={(value: number) => [formatLKR(value), "Total"]} />
+              <XAxis type="number" tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} tickFormatter={(val) => `Rs.${val / 1000}k`} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "#0f172a", fontWeight: 900, textTransform: "uppercase" }} axisLine={false} tickLine={false} width={130} />
+              <Tooltip cursor={{ fill: "#f8fafc" }} contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value: number) => [formatLKR(value), "Total"]} />
               <Bar dataKey="value" radius={[0, 8, 8, 0]}>
-                {analytics.cashFlowPipeline.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.fill} />)}
+                {analytics.cashFlowPipeline.map((entry, index) => <Cell key={index} fill={entry.fill} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* DYNAMIC TAX & DISCOUNT CONFIGURATION PANEL */}
+      {/* PRICING RULES */}
       <div className="grid lg:grid-cols-3 gap-8">
         <div className="lg:col-span-1 bg-slate-900 text-white p-8 rounded-3xl shadow-xl shadow-slate-200/40 flex flex-col justify-between">
           <div>
             <h3 className="text-lg font-black mb-2">Global Pricing Rules</h3>
-            <p className="text-xs text-slate-400 font-medium mb-6">Create global tax brackets or temporary promotional discounts. Active rules apply instantly to all newly generated invoices.</p>
-
+            <p className="text-xs text-slate-400 font-medium mb-6">
+              Create global tax brackets or temporary promotional discounts. Active rules apply instantly to all newly generated invoices.
+            </p>
             <form onSubmit={handleAddRule} className="space-y-4">
               <div>
-                <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Rule Identifier</label>
-                <input required type="text" placeholder="e.g. VAT 18% or Seasonal Promo" value={newRule.ruleName} onChange={(e) => setNewRule({...newRule, ruleName: e.target.value})} className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm font-bold text-white outline-none focus:border-blue-500 transition-colors" />
+                <label htmlFor="ruleName" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Rule Identifier</label>
+                <input
+                  id="ruleName" required type="text" placeholder="e.g. VAT 18% or Seasonal Promo"
+                  value={newRule.ruleName}
+                  onChange={(e) => setNewRule({ ...newRule, ruleName: e.target.value })}
+                  className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm font-bold text-white outline-none focus:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors"
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Classification</label>
-                  <select value={newRule.ruleType} onChange={(e) => setNewRule({...newRule, ruleType: e.target.value})} className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm font-bold text-white outline-none focus:border-blue-500 transition-colors">
+                  <label htmlFor="ruleType" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Classification</label>
+                  <select
+                    id="ruleType" value={newRule.ruleType}
+                    onChange={(e) => setNewRule({ ...newRule, ruleType: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm font-bold text-white outline-none focus:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors"
+                  >
                     <option value="TAX">Tax Charge</option>
                     <option value="DISCOUNT">Discount</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Rate (%)</label>
-                  <input required type="number" step="0.1" min="0.1" value={newRule.percentage} onChange={(e) => setNewRule({...newRule, percentage: parseFloat(e.target.value) || 0})} className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm font-bold text-white outline-none focus:border-blue-500 transition-colors" />
+                  <label htmlFor="rulePercentage" className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5">Rate (%)</label>
+                  <input
+                    id="rulePercentage" required type="number" step="0.1" min="0.1"
+                    value={newRule.percentage}
+                    onChange={(e) => setNewRule({ ...newRule, percentage: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm font-bold text-white outline-none focus:border-blue-500 focus-visible:ring-2 focus-visible:ring-blue-500 transition-colors"
+                  />
                 </div>
               </div>
-              <button type="submit" className="w-full mt-2 py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-colors active:scale-95 shadow-md">
-                Register New Rule
+              <button
+                type="submit" disabled={savingRule}
+                className="w-full mt-2 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:hover:bg-blue-600 text-white text-xs font-black uppercase tracking-widest rounded-xl transition-colors active:scale-95 shadow-md"
+              >
+                {savingRule ? "Saving..." : "Register New Rule"}
               </button>
             </form>
           </div>
         </div>
 
-        <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40 overflow-hidden">
-           <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/50">
-              <h3 className="text-lg font-black text-slate-900">Active Financial Configurations</h3>
-           </div>
-           <div className="p-0 overflow-x-auto">
-              <table className="w-full text-left whitespace-nowrap">
-                <thead>
-                  <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                    <th className="px-8 py-4">Pricing Engine Rule</th>
-                    <th className="px-8 py-4">Impact Modifier</th>
-                    <th className="px-8 py-4 text-center">System Status</th>
-                    <th className="px-8 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="text-sm font-medium text-slate-700 divide-y divide-slate-50">
-                  {pricingRules.map((rule) => {
-                    // ROBUST FALLBACK: Checks for both 'active' and 'isActive'
-                    const isRuleActive = rule.active !== undefined ? rule.active : rule.isActive;
-
-                    return (
-                      <tr key={rule.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-8 py-4 font-bold text-slate-900">{rule.ruleName}</td>
-                        <td className="px-8 py-4">
-                          <span className={`px-2 py-1 rounded text-[10px] font-black uppercase tracking-widest ${rule.ruleType === 'TAX' ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                            {rule.ruleType === 'TAX' ? '+' : '-'}{rule.percentage}% {rule.ruleType}
-                          </span>
-                        </td>
-                        <td className="px-8 py-4 text-center">
-                          <button
-                            onClick={() => handleToggleRule(rule.id)}
-                            className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-sm border ${
-                              isRuleActive
-                                ? 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200'
-                                : 'bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200'
-                            }`}
-                          >
-                            {isRuleActive ? "🟢 Active" : "⚪ Inactive"}
-                          </button>
-                        </td>
-                        <td className="px-8 py-4 text-right">
-                          <button onClick={() => handleDeleteRule(rule.id)} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors" title="Delete Rule">
-                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                  {pricingRules.length === 0 && (
-                    <tr><td colSpan={4} className="px-8 py-8 text-center text-slate-400 text-xs font-bold uppercase tracking-widest">No pricing rules configured.</td></tr>
-                  )}
-                </tbody>
-              </table>
-           </div>
+        <div className="lg:col-span-2 bg-white rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40 overflow-hidden flex flex-col">
+          <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <h3 className="text-lg font-black text-slate-900">Active Financial Configurations</h3>
+            <div className="relative">
+              <IconSearch className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text" placeholder="Search rules..." value={ruleSearch}
+                onChange={(e) => setRuleSearch(e.target.value)}
+                aria-label="Search pricing rules"
+                className="pl-8 pr-3 py-2 bg-slate-100 border border-transparent focus:border-blue-400 focus:bg-white rounded-xl text-xs font-bold text-slate-700 outline-none transition-colors w-full sm:w-52"
+              />
+            </div>
+          </div>
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-left whitespace-nowrap">
+              <thead>
+                <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                  <th scope="col" className="px-8 py-4">Pricing Engine Rule</th>
+                  <th scope="col" className="px-8 py-4">Impact Modifier</th>
+                  <th scope="col" className="px-8 py-4 text-center">System Status</th>
+                  <th scope="col" className="px-8 py-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm font-medium text-slate-700 divide-y divide-slate-50">
+                {rulesPagination.pageItems.map((rule) => {
+                  const isRuleActive = rule.active !== undefined ? rule.active : rule.isActive;
+                  const isPending = pendingRuleIds.has(rule.id);
+                  return (
+                    <tr key={rule.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-8 py-4 font-bold text-slate-900">{rule.ruleName}</td>
+                      <td className="px-8 py-4">
+                        <span className={`px-2 py-1 rounded text-[10px] font-black uppercase tracking-widest ${rule.ruleType === "TAX" ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"}`}>
+                          {rule.ruleType === "TAX" ? "+" : "-"}{rule.percentage}% {rule.ruleType}
+                        </span>
+                      </td>
+                      <td className="px-8 py-4 text-center">
+                        <button
+                          onClick={() => handleToggleRule(rule)}
+                          disabled={isPending}
+                          aria-pressed={!!isRuleActive}
+                          className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all active:scale-95 shadow-sm border disabled:opacity-60 ${
+                            isRuleActive
+                              ? "bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200"
+                              : "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200"
+                          }`}
+                        >
+                          {isRuleActive ? <IconCheckCircle className="w-3.5 h-3.5" /> : <IconXCircle className="w-3.5 h-3.5" />}
+                          {isPending ? "Updating..." : isRuleActive ? "Active" : "Inactive"}
+                        </button>
+                      </td>
+                      <td className="px-8 py-4 text-right">
+                        <button
+                          onClick={() => setConfirmDelete(rule)}
+                          disabled={isPending}
+                          aria-label={`Delete rule ${rule.ruleName}`}
+                          className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors disabled:opacity-60"
+                        >
+                          <IconTrash className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {rulesPagination.pageItems.length === 0 && (
+                  <tr><td colSpan={4} className="px-8 py-8 text-center text-slate-400 text-xs font-bold uppercase tracking-widest">
+                    {ruleSearch ? "No rules match your search." : "No pricing rules configured."}
+                  </td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <PaginationBar pagination={rulesPagination} itemLabel="rules" />
         </div>
       </div>
 
+      {/* SHIFT HANDOVERS */}
+      <div className="bg-white rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40 overflow-hidden">
+        <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/50 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+          <div>
+            <h3 className="text-lg font-black text-slate-900">Fuel Station Shift Audits & Handovers</h3>
+            <p className="text-xs text-slate-500 font-medium mt-0.5">Review supervisor-verified shift handovers, check cash variances, and clear deposits into the corporate ledger.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <IconSearch className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text" placeholder="Search pump or username..." value={handoverSearch}
+                onChange={(e) => setHandoverSearch(e.target.value)}
+                aria-label="Search shift handovers"
+                className="pl-8 pr-3 py-2 bg-slate-100 border border-transparent focus:border-blue-400 focus:bg-white rounded-xl text-xs font-bold text-slate-700 outline-none transition-colors w-48"
+              />
+            </div>
+            <select
+              value={handoverStatusFilter}
+              onChange={(e) => setHandoverStatusFilter(e.target.value as typeof handoverStatusFilter)}
+              aria-label="Filter by audit status"
+              className="px-3 py-2 bg-slate-100 rounded-xl text-xs font-bold text-slate-700 outline-none border border-transparent focus:border-blue-400"
+            >
+              <option value="ALL">All statuses</option>
+              <option value="PENDING">Pending</option>
+              <option value="APPROVED">Approved</option>
+            </select>
+            <button
+              onClick={() => exportHandoversCSV(filteredHandovers)}
+              disabled={filteredHandovers.length === 0}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-colors"
+            >
+              <IconDownload className="w-3.5 h-3.5" /> Export CSV
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left whitespace-nowrap">
+            <thead>
+              <tr className="border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                <th scope="col" className="px-8 py-4">Pump & Attendant</th>
+                <th scope="col" className="px-8 py-4">Supervisor</th>
+                <th scope="col" className="px-8 py-4 text-right">Expected Cash</th>
+                <th scope="col" className="px-8 py-4 text-right">Declared Cash</th>
+                <th scope="col" className="px-8 py-4 text-right">Variance</th>
+                <th scope="col" className="px-8 py-4 text-center">Audit Status</th>
+                <th scope="col" className="px-8 py-4 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="text-sm font-medium text-slate-700 divide-y divide-slate-50">
+              {handoversPagination.pageItems.map((h) => {
+                const isPending = pendingHandoverIds.has(h.id);
+                return (
+                  <tr key={h.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-8 py-4">
+                      <p className="font-black text-slate-900">Pump #{h.pumpNumber}</p>
+                      <p className="text-xs text-slate-400 font-mono mt-0.5">@{h.attendantUsername}</p>
+                    </td>
+                    <td className="px-8 py-4 font-bold text-slate-600">@{h.supervisorUsername}</td>
+                    <td className="px-8 py-4 text-right font-bold text-slate-900">{formatLKR(h.expectedCash)}</td>
+                    <td className="px-8 py-4 text-right font-bold text-slate-900">{formatLKR(h.declaredCash)}</td>
+                    <td className="px-8 py-4 text-right font-black">
+                      <span className={`inline-flex items-center gap-1 ${h.variance < 0 ? "text-red-500" : h.variance > 0 ? "text-blue-500" : "text-emerald-600"}`}>
+                        {h.variance !== 0 && <IconAlertTriangle className="w-3.5 h-3.5" />}
+                        {h.variance > 0 ? `+${formatLKR(h.variance)}` : formatLKR(h.variance)}
+                      </span>
+                    </td>
+                    <td className="px-8 py-4 text-center">
+                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border ${
+                        h.status === "APPROVED" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"
+                      }`}>
+                        {h.status === "APPROVED" ? <IconCheckCircle className="w-3 h-3" /> : <IconClock className="w-3 h-3" />}
+                        {h.status}
+                      </span>
+                    </td>
+                    <td className="px-8 py-4 text-right">
+                      {h.status !== "APPROVED" ? (
+                        <button
+                          onClick={() => handleApproveHandover(h)}
+                          disabled={isPending}
+                          className="px-4 py-2 bg-slate-900 hover:bg-blue-600 disabled:opacity-60 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm active:scale-95"
+                        >
+                          {isPending ? "Approving..." : "Approve & Clear"}
+                        </button>
+                      ) : (
+                        <span className="text-xs font-bold text-slate-400">Archived</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {handoversPagination.pageItems.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-8 py-12 text-center text-slate-400 font-medium">
+                    {handoverSearch || handoverStatusFilter !== "ALL"
+                      ? "No handovers match your filters."
+                      : "No shift handover reports submitted by supervisors yet."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <PaginationBar pagination={handoversPagination} itemLabel="handovers" />
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// PRESENTATIONAL SUBCOMPONENTS
+// =============================================================================
+function KpiCard({
+  icon, label, value, sub, accent,
+}: { icon: React.ReactNode; label: string; value: string; sub?: string; accent: string }) {
+  return (
+    <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-lg shadow-slate-200/50 hover:-translate-y-1 transition-transform">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</h3>
+        <span className={`w-8 h-8 rounded-xl flex items-center justify-center ${accent}`}>{icon}</span>
+      </div>
+      <div className="text-3xl font-black text-slate-900">{value}</div>
+      {sub && <p className="text-xs text-slate-400 font-semibold mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+function PaginationBar<T>({
+  pagination, itemLabel,
+}: { pagination: ReturnType<typeof usePagination<T>>; itemLabel: string }) {
+  if (pagination.totalPages <= 1) return null;
+  return (
+    <div className="flex items-center justify-between px-8 py-4 border-t border-slate-100 bg-slate-50/50">
+      <span className="text-xs font-bold text-slate-400">
+        Page {pagination.page} of {pagination.totalPages} {itemLabel}
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => pagination.setPage((p) => Math.max(1, p - 1))}
+          disabled={pagination.page === 1}
+          aria-label="Previous page"
+          className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 disabled:opacity-40 transition-colors"
+        >
+          <IconChevronLeft className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => pagination.setPage((p) => Math.min(pagination.totalPages, p + 1))}
+          disabled={pagination.page === pagination.totalPages}
+          aria-label="Next page"
+          className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 disabled:opacity-40 transition-colors"
+        >
+          <IconChevronRight className="w-4 h-4" />
+        </button>
+      </div>
     </div>
   );
 }

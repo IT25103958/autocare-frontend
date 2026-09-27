@@ -72,6 +72,12 @@ function NavigationBar() {
           { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
+      case "FUEL_ATTENDANT": // FIXED: Added routing for attendants
+        links.push(
+          { name: "Pump Sales", href: "/fuel" },
+          { name: "My Payslips", href: "/salary/my-payslips" }
+        );
+        break;
       case "CUSTOMER_RELATIONS_OFFICER":
         links.push(
           { name: "Support Tickets", href: "/complaints" },
@@ -109,7 +115,6 @@ function NavigationBar() {
     <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 shadow-sm transition-all duration-300">
       <div className="w-full px-4 lg:px-8 h-[72px] flex items-center justify-between gap-6">
 
-        {/* --- BRANDING LOGO --- */}
         <Link href="/" className="flex items-center gap-3 group shrink-0">
           <div className="w-9 h-9 rounded-xl bg-slate-900 flex items-center justify-center shadow-lg shadow-slate-900/20 group-hover:bg-blue-600 transition-all duration-500 transform group-hover:scale-105 group-hover:rotate-3">
             <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -123,30 +128,20 @@ function NavigationBar() {
           </div>
         </Link>
 
-        {/* --- DYNAMIC RBAC NAVIGATION --- */}
         {user && (
           <nav className="hidden lg:flex items-center gap-2 overflow-x-auto no-scrollbar mask-edges pb-1 pt-1 flex-1 justify-center">
             {navLinks.map((link) => {
               const isActive = pathname === link.href || (pathname.startsWith(link.href) && link.href !== '/');
               return (
-                <Link
-                  key={link.name}
-                  href={link.href}
-                  className={`text-sm font-bold transition-all duration-300 px-4 py-2.5 rounded-xl whitespace-nowrap relative group ${
-                    isActive ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/80'
-                  }`}
-                >
+                <Link key={link.name} href={link.href} className={`text-sm font-bold transition-all duration-300 px-4 py-2.5 rounded-xl whitespace-nowrap relative group ${isActive ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100/80'}`}>
                   {link.name}
-                  {!isActive && (
-                    <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-blue-600 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 transform scale-50 group-hover:scale-100"></span>
-                  )}
+                  {!isActive && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-blue-600 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 transform scale-50 group-hover:scale-100"></span>}
                 </Link>
               );
             })}
           </nav>
         )}
 
-        {/* --- AUTHENTICATION UI --- */}
         <div className="flex items-center justify-end shrink-0 min-w-[200px]">
           {user ? (
             <div className="flex items-center gap-2 lg:gap-4">
@@ -167,12 +162,8 @@ function NavigationBar() {
             </div>
           ) : (
              <div className="flex items-center gap-3 shrink-0">
-              <Link href="/login" className="text-sm font-bold text-slate-600 hover:text-blue-700 px-4 py-2 rounded-lg hover:bg-blue-50/80 transition-all whitespace-nowrap">
-                Sign In
-              </Link>
-              <Link href="/register" className="text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 px-5 py-2.5 rounded-xl shadow-md shadow-blue-600/20 whitespace-nowrap transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0">
-                Get Started
-              </Link>
+              <Link href="/login" className="text-sm font-bold text-slate-600 hover:text-blue-700 px-4 py-2 rounded-lg hover:bg-blue-50/80 transition-all whitespace-nowrap">Sign In</Link>
+              <Link href="/register" className="text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 px-5 py-2.5 rounded-xl shadow-md transition-all hover:-translate-y-0.5">Get Started</Link>
             </div>
           )}
         </div>
