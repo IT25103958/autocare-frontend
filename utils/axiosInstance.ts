@@ -23,4 +23,27 @@ api.interceptors.request.use(
     }
 );
 
+// Account-level responses from the backend's JWT filter:
+//  - ACCOUNT_DISABLED: the account was deactivated -> sign out.
+//  - PASSWORD_CHANGE_REQUIRED: a temporary password is still in use.
+api.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        const code = error?.response?.data;
+        if (typeof window !== 'undefined') {
+            if (error?.response?.status === 401 && code === 'ACCOUNT_DISABLED') {
+                localStorage.removeItem('authUser');
+                localStorage.removeItem('jwtToken');
+                document.cookie = 'jwtToken=; path=/; max-age=0; SameSite=Strict';
+                document.cookie = 'userRole=; path=/; max-age=0; SameSite=Strict';
+                window.location.href = '/login';
+            } else if (error?.response?.status === 403 && code === 'PASSWORD_CHANGE_REQUIRED'
+                && window.location.pathname !== '/change-password') {
+                window.location.href = '/change-password';
+            }
+        }
+        return Promise.reject(error);
+    }
+);
+
 export default api;

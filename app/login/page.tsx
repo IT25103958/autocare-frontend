@@ -42,14 +42,19 @@ export default function LoginPage() {
         username: response.data.username,
         role: response.data.role,
         fullName: response.data.fullName,
+        mustChangePassword: response.data.mustChangePassword === true,
       });
 
-      // --- FIXED: Hard redirect straight to the smart Home page ---
-      window.location.href = "/";
+      // First sign-in with a temporary password goes straight to choosing a
+      // new one; the backend refuses every other request until then.
+      window.location.href = response.data.mustChangePassword ? "/change-password" : "/";
 
     } catch (err: any) {
       if (err.response?.status === 401) {
         setServerError("Invalid username or password. Please try again.");
+      } else if (err.response?.status === 403 && typeof err.response.data === "string") {
+        // Deactivated account
+        setServerError(err.response.data);
       } else {
         setServerError("Network error. Is the Spring Boot server running?");
       }
@@ -154,9 +159,14 @@ export default function LoginPage() {
             </div>
 
             <div className="animate-slide-up" style={{ animationDelay: "0.3s", opacity: 0, animationFillMode: "forwards" }}>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">
-                Password
-              </label>
+              <div className="flex justify-between items-baseline mb-1.5 ml-1">
+                <label className="block text-sm font-bold text-slate-700">
+                  Password
+                </label>
+                <Link href="/forgot-password" className="text-xs font-bold text-blue-600 hover:text-blue-800">
+                  Forgot password?
+                </Link>
+              </div>
               <div className="relative group">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                   <svg className="h-5 w-5 text-slate-400 group-focus-within:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">

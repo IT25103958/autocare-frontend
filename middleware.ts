@@ -7,6 +7,12 @@ const rolePermissions: Record<string, string[]> = {
   '/tanks':      ['FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER'],
   // FIXED: Added FUEL_ATTENDANT to /fuel
   '/fuel':       ['FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER', 'FUEL_ATTENDANT'],
+  // Suppliers dispatch their bowsers from this page; supervisors order/receive.
+  // Finance reads it too: open fuel orders are future liabilities.
+  '/fuel-deliveries': ['FUEL_STATION_SUPERVISOR', 'SUPPLIER', 'ACCOUNTS_FINANCE_OFFICER'],
+  // Supplier master: fuel supervisor onboards fuel suppliers, inventory
+  // manager parts suppliers, Finance manages payment details and balances.
+  '/suppliers':  ['ACCOUNTS_FINANCE_OFFICER', 'FUEL_STATION_SUPERVISOR', 'INVENTORY_MANAGER'],
   '/payables':   ['ACCOUNTS_FINANCE_OFFICER'],
   // FIXED: Added FUEL_ATTENDANT to /salary/my-payslips
   '/salary/my-payslips': ['TECHNICIAN', 'SERVICE_CENTER_MANAGER', 'FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER', 'INVENTORY_MANAGER', 'CUSTOMER_RELATIONS_OFFICER', 'FUEL_ATTENDANT'],
@@ -27,30 +33,24 @@ export function middleware(request: NextRequest) {
   const role = request.cookies.get('userRole')?.value;
   const path = request.nextUrl.pathname;
 
-  const isProtectedRoute = Object.keys(rolePermissions).some(route => path.startsWith(route));
+  // Match on whole path segments and pick the most specific route, so
+  // '/fuel' doesn't swallow '/fuel-deliveries' and '/salary/my-payslips'
+  // wins over '/salary'.
+  const matchedRoute = Object.keys(rolePermissions)
+    .filter(route => path === route || path.startsWith(route + '/'))
+    .sort((a, b) => b.length - a.length)[0];
 
-  if (isProtectedRoute) {
+  if (matchedRoute) {
     if (!token || !role) {
       const loginUrl = new URL('/login', request.url);
       loginUrl.searchParams.set('redirect', path);
       return NextResponse.redirect(loginUrl);
     }
 
-    let hasAccess = false;
-    for (const [route, allowedRoles] of Object.entries(rolePermissions)) {
-      if (path === route || (route !== '/salary' && path.startsWith(route))) {
-        if (allowedRoles.includes(role) || role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN' || role === 'EXECUTIVE_OWNER') {
-          hasAccess = true;
-        }
-        break;
-      }
-      if (path.startsWith('/salary') && route === '/salary') {
-        if (allowedRoles.includes(role) || role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN' || role === 'EXECUTIVE_OWNER') {
-          hasAccess = true;
-        }
-        break;
-      }
-    }
+    // UI guard only: the role cookie is set by the browser, so the backend's
+    // own authorization remains the real check.
+    const allowedRoles = rolePermissions[matchedRoute];
+    const hasAccess = allowedRoles.includes(role) || role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN' || role === 'EXECUTIVE_OWNER';
 
     if (!hasAccess) {
       return NextResponse.redirect(new URL('/', request.url));
@@ -62,7 +62,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/bookings/:path*', '/tanks/:path*', '/fuel/:path*', '/payables/:path*',
+    '/bookings/:path*', '/tanks/:path*', '/fuel/:path*', '/fuel-deliveries/:path*', '/suppliers/:path*', '/payables/:path*',
     '/salary/:path*', '/complaints/:path*', '/customers/:path*', '/deliveries/:path*',
     '/parts/:path*', '/rma/:path*', '/support/:path*', '/roster/:path*', '/users/:path*',
     '/pos/:path*', '/audit/:path*'

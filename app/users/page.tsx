@@ -10,11 +10,18 @@ interface UserAccount {
   email: string;
   role: string;
   fullName: string;
+  supplierId?: number | null;
+  active?: boolean | null;
+  mustChangePassword?: boolean | null;
+  lastLoginAt?: string | null;
 }
+
+interface SupplierEntry { id: number; supplierCode: string; companyName: string }
 
 export default function UserManagementDashboard() {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<UserAccount[]>([]);
+  const [suppliers, setSuppliers] = useState<Map<number, SupplierEntry>>(new Map());
   const [isMounted, setIsMounted] = useState(false);
 
   // Security Alert Modal State
@@ -34,6 +41,13 @@ export default function UserManagementDashboard() {
     } catch (err) {
       console.error("Failed to fetch users", err);
     }
+    // Company names for supplier portal logins.
+    try {
+      const sup = await axios.get("http://localhost:8080/api/suppliers/directory", getAuthHeader());
+      setSuppliers(new Map((sup.data as SupplierEntry[]).map((x) => [x.id, x])));
+    } catch {
+      setSuppliers(new Map());
+    }
   };
 
   useEffect(() => {
@@ -50,6 +64,18 @@ export default function UserManagementDashboard() {
       const errorMessage = err.response?.data || "An unexpected error occurred during role assignment.";
       setAlertModal({ isOpen: true, type: "error", title: "Security Block", message: errorMessage });
       fetchUsers(); // Refresh to revert the UI dropdown if the backend rejected the change
+    }
+  };
+
+  const handleToggleActive = async (u: UserAccount) => {
+    const nextActive = u.active === false;
+    try {
+      await axios.put(`http://localhost:8080/api/auth/${u.id}/active?active=${nextActive}`, {}, getAuthHeader());
+      fetchUsers();
+      setAlertModal({ isOpen: true, type: "success", title: nextActive ? "Account Reactivated" : "Account Deactivated",
+        message: nextActive ? `${u.username} can sign in again.` : `${u.username} can no longer sign in, and any open session has ended.` });
+    } catch (err: any) {
+      setAlertModal({ isOpen: true, type: "error", title: "Action Forbidden", message: err.response?.data || "Couldn't change the account status." });
     }
   };
 
@@ -78,7 +104,6 @@ export default function UserManagementDashboard() {
     { value: "FUEL_ATTENDANT", label: "Fuel Attendant" }, // NEW: Added Fuel Attendant Role
     { value: "ACCOUNTS_FINANCE_OFFICER", label: "Accounts & Finance Officer" },
     { value: "TECHNICIAN", label: "Service Technician" },
-    { value: "SUPPLIER", label: "Supplier" },
     { value: "CUSTOMER", label: "Customer" }
   ];
 
@@ -116,14 +141,20 @@ export default function UserManagementDashboard() {
                 // UI Safeguards to prevent obvious invalid actions before hitting the backend
                 const isSelf = u.username === currentUser?.username;
                 const isTargetRoot = u.role === 'SUPER_ADMIN';
-                const isDropdownDisabled = isReadOnly || isSelf || isTargetRoot;
+                const isSupplierLogin = u.role === 'SUPPLIER';
+                const isTopLevel = isTargetRoot || u.role === 'EXECUTIVE_OWNER';
+                const isDropdownDisabled = isReadOnly || isSelf || isTargetRoot || isSupplierLogin;
                 const isDeleteDisabled = isReadOnly || isSelf || isTargetRoot;
+                const isDeactivated = u.active === false;
+                const company = u.supplierId != null ? suppliers.get(u.supplierId) : undefined;
 
                 return (
-                  <tr key={u.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition-colors">
+                  <tr key={u.id} className={`border-b border-slate-50 transition-colors ${isDeactivated ? "bg-slate-50 opacity-70" : "hover:bg-slate-50/50"}`}>
                     <td className="py-4 pr-4">
                       <div className="font-bold text-slate-900">{u.fullName} {isSelf && <span className="text-blue-500 text-xs">(You)</span>}</div>
                       <div className="text-xs text-slate-400 mt-0.5 font-mono">@{u.username}</div>
+                      {isDeactivated && <div className="text-[10px] font-black text-red-600 uppercase mt-0.5">Deactivated</div>}
+                      {!isDeactivated && u.mustChangePassword && <div className="text-[10px] font-black text-amber-600 uppercase mt-0.5">Temporary password — not signed in yet</div>}
                     </td>
                     <td className="py-4 pr-4 text-slate-600 text-xs">{u.email}</td>
                     <td className="py-4 pr-4">
@@ -134,19 +165,39 @@ export default function UserManagementDashboard() {
                       }`}>
                         {u.role.replace(/_/g, ' ')}
                       </span>
+                      {isSupplierLogin && (
+                        <div className="text-[10px] font-bold text-slate-500 mt-1">
+                          {company ? `${company.companyName} (${company.supplierCode})` : "No supplier company"}
+                        </div>
+                      )}
                     </td>
                     <td className="py-4 text-right">
                       <div className="flex justify-end items-center gap-3">
-                        <select
-                          className="px-3 py-2 border border-slate-200 bg-slate-50 rounded-lg text-xs font-bold outline-none focus:border-blue-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                          value={u.role}
-                          onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                          disabled={isDropdownDisabled}
+                        {isSupplierLogin ? (
+                          // Supplier logins are created, reset and deactivated from the
+                          // Suppliers page by the team that manages that supplier.
+                          <span className="text-[10px] font-bold text-slate-400" title="Managed on the Suppliers page">Supplier login · managed on Suppliers page</span>
+                        ) : (
+                          <select
+                            className="px-3 py-2 border border-slate-200 bg-slate-50 rounded-lg text-xs font-bold outline-none focus:border-blue-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                            value={u.role}
+                            onChange={(e) => handleRoleChange(u.id, e.target.value)}
+                            disabled={isDropdownDisabled}
+                          >
+                            {systemRoles.map(role => (
+                              <option key={role.value} value={role.value}>{role.label}</option>
+                            ))}
+                          </select>
+                        )}
+
+                        <button
+                          onClick={() => handleToggleActive(u)}
+                          disabled={isReadOnly || isSelf || isTopLevel}
+                          className={`px-2.5 py-1.5 rounded-lg border text-[10px] font-black uppercase tracking-widest disabled:opacity-30 ${isDeactivated ? "border-emerald-200 text-emerald-700" : "border-slate-200 text-slate-600 hover:border-red-200 hover:text-red-600"}`}
+                          title={isDeactivated ? "Allow this account to sign in again" : "Block sign-in without deleting the account"}
                         >
-                          {systemRoles.map(role => (
-                            <option key={role.value} value={role.value}>{role.label}</option>
-                          ))}
-                        </select>
+                          {isDeactivated ? "Reactivate" : "Deactivate"}
+                        </button>
 
                         <button
                           onClick={() => handleDeleteUser(u.id, u.username)}

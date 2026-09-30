@@ -3,14 +3,35 @@
 import { Inter } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import api from "../utils/axiosInstance";
 
 const inter = Inter({ subsets: ["latin"] });
 
 function NavigationBar() {
   const { user, logout } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
+
+  // Someone still on a temporary password can't use the app until they
+  // choose their own (the backend enforces this too).
+  useEffect(() => {
+    if (user?.mustChangePassword && pathname !== "/change-password") {
+      router.replace("/change-password");
+    }
+  }, [user, pathname, router]);
+
+  // A supplier's menu depends on what its company supplies (fuel, spare
+  // parts or both), which lives on the supplier record, not on the role.
+  const [supplierCategories, setSupplierCategories] = useState<string[]>([]);
+  useEffect(() => {
+    if (user?.role !== "SUPPLIER") return;
+    api.get<{ categories: string[] }>("/suppliers/me")
+      .then((res) => setSupplierCategories(res.data.categories))
+      .catch(() => setSupplierCategories([]));
+  }, [user]);
 
   const getInitials = (name: string) => {
     const parts = name.trim().split(' ');
@@ -27,16 +48,22 @@ function NavigationBar() {
 
     switch (user.role) {
       case "SUPPLIER":
-        links.push(
-          { name: "Deliveries", href: "/deliveries" },
-          { name: "RMA Portal", href: "/rma" }
-        );
+        if (supplierCategories.includes("SPARE_PARTS")) {
+          links.push(
+            { name: "Parts Orders", href: "/deliveries" },
+            { name: "Returns (RMA)", href: "/rma" }
+          );
+        }
+        if (supplierCategories.includes("FUEL")) {
+          links.push({ name: "Fuel Orders", href: "/fuel-deliveries" });
+        }
         break;
       case "INVENTORY_MANAGER":
         links.push(
           { name: "Retail POS", href: "/pos" },
           { name: "Parts Catalog", href: "/parts" },
           { name: "Deliveries", href: "/deliveries" },
+          { name: "Parts Suppliers", href: "/suppliers" },
           { name: "Returns (RMA)", href: "/rma" },
           { name: "My Payslips", href: "/salary/my-payslips" }
         );
@@ -44,7 +71,10 @@ function NavigationBar() {
       case "ACCOUNTS_FINANCE_OFFICER":
         links.push(
           { name: "Payables", href: "/payables" },
+          { name: "Suppliers", href: "/suppliers" },
           { name: "Payroll", href: "/salary" },
+          { name: "Wet Stock", href: "/tanks" },
+          { name: "Fuel Deliveries", href: "/fuel-deliveries" },
           { name: "Refunds (RMA)", href: "/rma" },
           { name: "Support Tickets", href: "/complaints" },
           { name: "My Payslips", href: "/salary/my-payslips" }
@@ -66,7 +96,9 @@ function NavigationBar() {
         break;
       case "FUEL_STATION_SUPERVISOR":
         links.push(
-          { name: "Fuel Tanks", href: "/tanks" },
+          { name: "Wet Stock", href: "/tanks" },
+          { name: "Fuel Deliveries", href: "/fuel-deliveries" },
+          { name: "Fuel Suppliers", href: "/suppliers" },
           { name: "Pump Sales", href: "/fuel" },
           { name: "Support Tickets", href: "/complaints" },
           { name: "My Payslips", href: "/salary/my-payslips" }
@@ -91,6 +123,7 @@ function NavigationBar() {
         links.push(
           { name: "Retail POS", href: "/pos" },
           { name: "Payables", href: "/payables" },
+          { name: "Suppliers", href: "/suppliers" },
           { name: "Payroll", href: "/salary" },
           { name: "RMA Ledger", href: "/rma" },
           { name: "Support Tickets", href: "/complaints" },
@@ -145,7 +178,7 @@ function NavigationBar() {
         <div className="flex items-center justify-end shrink-0 min-w-[200px]">
           {user ? (
             <div className="flex items-center gap-2 lg:gap-4">
-              <div className="flex items-center gap-3 pl-2 pr-4 py-1.5 rounded-full border border-slate-200 bg-white shadow-sm max-w-[220px]">
+              <Link href="/change-password" title="Change password" className="flex items-center gap-3 pl-2 pr-4 py-1.5 rounded-full border border-slate-200 bg-white shadow-sm max-w-[220px] hover:border-blue-300">
                 <div className="w-8 h-8 shrink-0 rounded-full bg-gradient-to-br from-slate-800 to-slate-900 text-white flex items-center justify-center text-xs font-bold shadow-inner">
                   {getInitials(user.username)}
                 </div>
@@ -153,7 +186,7 @@ function NavigationBar() {
                   <span className="text-sm font-bold text-slate-800 leading-tight truncate">{user.username}</span>
                   <span className="text-[9px] font-bold text-blue-600 uppercase tracking-widest leading-tight truncate">{user.role.replace(/_/g, ' ')}</span>
                 </div>
-              </div>
+              </Link>
               <button onClick={logout} className="p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-all shrink-0" title="Sign Out">
                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

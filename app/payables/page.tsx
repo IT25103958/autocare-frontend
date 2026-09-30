@@ -96,6 +96,7 @@ interface PaymentRecord {
 
 interface AccountsPayable {
   invoiceId: number;
+  supplierId?: number | null;
   supplierName: string;
   supplyCategory: string;
   totalInvoiceAmount: number;
@@ -120,11 +121,19 @@ interface RmaRefund {
   partCode: string;
   quantity: number;
   reason: string;
+  supplierId?: number | null;
   supplierName: string;
   totalValue: number;
   status: string;
   financialStatus: string;
   dateLogged: string;
+}
+
+// Same supplier? Compare supplier-master ids when both rows have one; fall
+// back to the name for rows recorded before suppliers had ids.
+function sameSupplier(inv: AccountsPayable, rma: RmaRefund) {
+  if (inv.supplierId != null && rma.supplierId != null) return inv.supplierId === rma.supplierId;
+  return inv.supplierName.toLowerCase() === rma.supplierName.toLowerCase();
 }
 
 interface RetailTransaction {
@@ -133,11 +142,25 @@ interface RetailTransaction {
   totalRevenue: number;
 }
 
+interface SalaryRecord {
+  salaryId: number;
+  totalSalary?: number;
+  netSalary?: number;
+}
+
+interface ShiftHandover {
+  id: number;
+  declaredCash: number;
+  status: string;
+}
+
 interface FetchErrors {
   payables?: boolean;
   pos?: boolean;
   bookings?: boolean;
   rma?: boolean;
+  salary?: boolean;
+  handovers?: boolean;
 }
 
 type InvoiceStatus = "PENDING" | "PARTIAL" | "OVERDUE" | "PAID";
@@ -333,6 +356,8 @@ export default function PayablesDashboard() {
   const [retailRevenue, setRetailRevenue] = useState<RetailTransaction[]>([]);
   const [workshopRevenue, setWorkshopRevenue] = useState<ServiceBooking[]>([]);
   const [rmas, setRmas] = useState<RmaRefund[]>([]);
+  const [salaries, setSalaries] = useState<SalaryRecord[]>([]);
+  const [handovers, setHandovers] = useState<ShiftHandover[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -380,6 +405,14 @@ export default function PayablesDashboard() {
     (amount: number) => new Intl.NumberFormat("en-LK", { style: "currency", currency: "LKR" }).format(amount || 0),
     []
   );
+  // Full precision is too wide for a KPI card at 5-across (it was clipping to
+  // "LKR 1,344,2…"), so the cards use compact notation instead — the exact
+  // figure is still available in the `title` tooltip and everywhere else
+  // (tables, CSV, modals) still uses formatLKR at full precision.
+  const formatCompactLKR = useCallback(
+    (amount: number) => new Intl.NumberFormat("en-LK", { style: "currency", currency: "LKR", notation: "compact", maximumFractionDigits: 2 }).format(amount || 0),
+    []
+  );
 
   // ---------------------------------------------------------------------------
   // DATA FETCHING
@@ -391,15 +424,21 @@ export default function PayablesDashboard() {
   // If your backend doesn't have a full-ledger GET /api/payables endpoint yet,
   // add one (return accountsPayableRepository.findAll()) — it's already
   // permitted by your SecurityConfig's /api/payables/** GET rule.
+  //
+  // Also pulls GET /api/salary so payroll shows up in the Net Cash Position
+  // card below — it previously wasn't fetched here at all, so authorizing a
+  // salary payout had no visible effect on this page's cash figures.
   // ---------------------------------------------------------------------------
   const fetchAll = useCallback(async (isManualRefresh = false) => {
     if (isManualRefresh) setRefreshing(true); else setLoading(true);
 
-    const [payRes, posRes, bookRes, rmaRes] = await Promise.allSettled([
+    const [payRes, posRes, bookRes, rmaRes, salaryRes, handoverRes] = await Promise.allSettled([
       api.get<AccountsPayable[]>("/api/payables"),
       api.get<RetailTransaction[]>("/api/pos/history"),
       api.get<ServiceBooking[]>("/api/bookings"),
       api.get<RmaRefund[]>("/api/rma"),
+      api.get<SalaryRecord[]>("/api/salary"),
+      api.get<ShiftHandover[]>("/api/pumps/handovers"),
     ]);
 
     const errors: FetchErrors = {};
@@ -407,6 +446,8 @@ export default function PayablesDashboard() {
     const pos = posRes.status === "fulfilled" ? posRes.value.data : (errors.pos = true, []);
     const bookings = bookRes.status === "fulfilled" ? bookRes.value.data : (errors.bookings = true, []);
     const rmaData = rmaRes.status === "fulfilled" ? rmaRes.value.data : (errors.rma = true, []);
+    const salaryData = salaryRes.status === "fulfilled" ? salaryRes.value.data : (errors.salary = true, []);
+    const handoverData = handoverRes.status === "fulfilled" ? handoverRes.value.data : (errors.handovers = true, []);
 
     setInvoices(payables);
     setRetailRevenue([...pos].reverse());
@@ -414,6 +455,8 @@ export default function PayablesDashboard() {
       bookings.filter((b) => b.status === "PAID" || b.status === "COMPLETED").sort((a, b) => b.bookingID - a.bookingID)
     );
     setRmas(rmaData.filter((r) => r.status === "APPROVED_REFUND" || r.financialStatus === "SETTLED"));
+    setSalaries(salaryData);
+    setHandovers(handoverData);
     setFetchErrors(errors);
     setLastUpdated(new Date());
     setLoading(false);
@@ -509,7 +552,7 @@ export default function PayablesDashboard() {
   // ---------------------------------------------------------------------------
   const openSettlementModal = (rma: RmaRefund) => {
     const matchingInvoice = invoices.find((inv) =>
-      inv.supplierName.toLowerCase() === rma.supplierName.toLowerCase() && getInvoiceStatus(inv).balance > MONEY_EPSILON
+      sameSupplier(inv, rma) && getInvoiceStatus(inv).balance > MONEY_EPSILON
     );
     setSettlementModal({
       isOpen: true, rma,
@@ -583,7 +626,7 @@ export default function PayablesDashboard() {
   // ---------------------------------------------------------------------------
   // DERIVED DATA
   // ---------------------------------------------------------------------------
-  const { totalDebt, pendingCount, overdueCount, upcomingDue, totalIncome, unsettledRmaCount, unsettledRmaTotal, ledgerStatus, isLedgerHealthy } = useMemo(() => {
+  const { totalDebt, pendingCount, overdueCount, upcomingDue, totalIncome, totalPayrollPaid, totalPaidToSuppliers, netCashPosition, workshopCollected, workshopAwaiting, fuelCashCleared, unsettledRmaCount, unsettledRmaTotal, ledgerStatus, isLedgerHealthy } = useMemo(() => {
     let debt = 0, pending = 0, overdue = 0, upcoming = 0;
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const nextWeek = new Date(); nextWeek.setDate(today.getDate() + 7); nextWeek.setHours(23, 59, 59, 999);
@@ -600,10 +643,44 @@ export default function PayablesDashboard() {
     });
 
     const posRev = retailRevenue.reduce((sum, txn) => sum + (txn.totalRevenue || 0), 0);
-    const workshopRev = workshopRevenue.reduce((sum, job) => sum + (job.totalPartsCost || 0), 0);
+
+    // WORKSHOP: only PAID jobs are cash. COMPLETED means the job is done and
+    // invoiced but the customer hasn't paid yet (the backend only flips it to
+    // PAID in settlePayment, when the money is actually collected). This page
+    // used to add both together, so uncollected invoices were being counted
+    // as cash already in hand.
+    const workshopCollected = workshopRevenue
+      .filter((job) => job.status === "PAID")
+      .reduce((sum, job) => sum + (job.totalPartsCost || 0), 0);
+    const workshopAwaiting = workshopRevenue
+      .filter((job) => job.status === "COMPLETED")
+      .reduce((sum, job) => sum + (job.totalPartsCost || 0), 0);
+
+    // FUEL STATION: sales never touch POS, so this whole income stream was
+    // missing. Cash counts once finance has approved the shift handover, and
+    // we use the counted (declared) amount so a shortfall is not hidden.
+    const fuelCashCleared = handovers
+      .filter((h) => h.status === "APPROVED")
+      .reduce((sum, h) => sum + (h.declaredCash || 0), 0);
+
     const settledRmaRev = rmas.filter((r) => r.financialStatus === "SETTLED").reduce((sum, r) => sum + (r.totalValue || 0), 0);
     const unsettledList = rmas.filter((r) => r.financialStatus === "UNSETTLED");
     const unsettledTotal = unsettledList.reduce((sum, r) => sum + (r.totalValue || 0), 0);
+    const income = roundMoney(posRev + workshopCollected + settledRmaRev + fuelCashCleared);
+
+    // Supplier payments already made (not the remaining balance — that's a
+    // liability, not cash that's left the account) plus payroll already
+    // disbursed, both subtracted from revenue. Payroll has no partial-payment
+    // concept, so every salary record represents cash that's already gone.
+    //
+    // KNOWN LIMITATION: an RMA credit settled by "offset" is recorded as a
+    // supplier payment (outflow) AND as a settled RMA (inflow) with no cash
+    // actually moving — the two cancel, so Net Cash Position stays right, but
+    // both gross figures are inflated by the offset amount. Fixing that needs
+    // the backend to store the settlement method on the RMA record.
+    const paidToSuppliers = invoices.reduce((sum, inv) => sum + (inv.amountPaid || 0), 0);
+    const payrollPaid = salaries.reduce((sum, rec) => sum + (rec.totalSalary ?? rec.netSalary ?? 0), 0);
+    const netPosition = roundMoney(income - paidToSuppliers - payrollPaid);
 
     let status = "CLEARED"; let healthy = true;
     if (overdue > 0) { status = "OVERDUE"; healthy = false; }
@@ -611,11 +688,12 @@ export default function PayablesDashboard() {
 
     return {
       totalDebt: debt, pendingCount: pending, overdueCount: overdue, upcomingDue: upcoming,
-      totalIncome: posRev + workshopRev + settledRmaRev,
+      totalIncome: income, totalPayrollPaid: payrollPaid, totalPaidToSuppliers: paidToSuppliers, netCashPosition: netPosition,
+      workshopCollected, workshopAwaiting, fuelCashCleared,
       unsettledRmaCount: unsettledList.length, unsettledRmaTotal: unsettledTotal,
       ledgerStatus: status, isLedgerHealthy: healthy,
     };
-  }, [invoices, retailRevenue, workshopRevenue, rmas]);
+  }, [invoices, retailRevenue, workshopRevenue, rmas, salaries, handovers]);
 
   const filteredInvoices = useMemo(() => {
     const q = payablesSearch.trim().toLowerCase();
@@ -655,7 +733,6 @@ export default function PayablesDashboard() {
 
   // All-time totals for the Revenue tab's summary cards — independent of the
   // search box, so the headline numbers don't shift while someone is typing.
-  const workshopRevenueTotal = useMemo(() => workshopRevenue.reduce((s, j) => s + (j.totalPartsCost || 0), 0), [workshopRevenue]);
   const retailRevenueTotal = useMemo(() => retailRevenue.reduce((s, t) => s + (t.totalRevenue || 0), 0), [retailRevenue]);
 
   // ---------------------------------------------------------------------------
@@ -744,16 +821,25 @@ export default function PayablesDashboard() {
         )}
 
         {/* --- KPI SUMMARY METRICS --- */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <StatCard title="Total Cash Inflow" value={formatLKR(totalIncome)} trend="Workshop, Retail & Settled RMA" trendUp={true} delay="0.1s" />
-          <StatCard title="Total Supplier Debt" value={formatLKR(totalDebt)} trend={`${pendingCount} Active Invoices`} trendUp={totalDebt === 0} delay="0.2s" />
-          <StatCard title="Due In 7 Days" value={formatLKR(upcomingDue)} trend={upcomingDue > 0 ? "Requires Attention" : "Clear for 7 Days"} trendUp={upcomingDue === 0} delay="0.3s" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+          <StatCard title="Total Cash Inflow" value={formatCompactLKR(totalIncome)} exactValue={formatLKR(totalIncome)} trend="Paid jobs, Retail, Fuel & RMA" trendUp={true} delay="0.1s" />
+          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm animate-fade-in-up" style={{ animationDelay: "0.15s" }}>
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Net Cash Position</h3>
+            <div className={`text-2xl lg:text-3xl font-black tracking-tight mb-3 ${netCashPosition < 0 ? "text-red-600" : "text-slate-900"}`} title={formatLKR(netCashPosition)}>{formatCompactLKR(netCashPosition)}</div>
+            <div className="text-xs font-bold text-slate-500">Inflow &minus; supplier &amp; payroll payouts</div>
+          </div>
+          <StatCard title="Total Supplier Debt" value={formatCompactLKR(totalDebt)} exactValue={formatLKR(totalDebt)} trend={`${pendingCount} Active Invoices`} trendUp={totalDebt === 0} delay="0.2s" />
+          <StatCard title="Due In 7 Days" value={formatCompactLKR(upcomingDue)} exactValue={formatLKR(upcomingDue)} trend={upcomingDue > 0 ? "Requires Attention" : "Clear for 7 Days"} trendUp={upcomingDue === 0} delay="0.3s" />
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm animate-fade-in-up" style={{ animationDelay: "0.4s" }}>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Ledger Health</h3>
             <div className={`text-2xl lg:text-3xl font-black tracking-tight mb-2 ${isLedgerHealthy ? "text-emerald-600" : "text-red-600 animate-pulse"}`}>{ledgerStatus}</div>
             <div className="text-xs font-bold text-slate-500">{overdueCount > 0 ? `${overdueCount} bills past deadline` : "Operating normally"}</div>
           </div>
         </div>
+        <p className="text-xs font-semibold text-slate-400 -mt-4 mb-8">
+          Net cash position = {formatLKR(totalIncome)} received &minus; {formatLKR(totalPaidToSuppliers)} paid to suppliers &minus; {formatLKR(totalPayrollPaid)} payroll.
+          {workshopAwaiting > 0 && <> {formatLKR(workshopAwaiting)} in completed jobs is still awaiting customer payment and is not counted.</>}
+        </p>
 
         {/* --- TAB NAVIGATION --- */}
         <div className="flex border-b border-slate-200 mb-8 gap-4">
@@ -945,10 +1031,11 @@ export default function PayablesDashboard() {
         {/* --- TAB 3: INBOUND REVENUE STREAMS --- */}
         {activeTab === "REVENUE" && (
           <div className="animate-fade-in-up space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-              <StatCard title="Workshop Revenue" value={formatLKR(workshopRevenueTotal)} trend={`${workshopRevenue.length} billed jobs`} trendUp={true} delay="0s" />
-              <StatCard title="Retail Revenue" value={formatLKR(retailRevenueTotal)} trend={`${retailRevenue.length} transactions`} trendUp={true} delay="0.05s" />
-              <StatCard title="Combined Inbound" value={formatLKR(workshopRevenueTotal + retailRevenueTotal)} trend="Workshop + Retail" trendUp={true} delay="0.1s" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              <StatCard title="Workshop Collected" value={formatCompactLKR(workshopCollected)} exactValue={formatLKR(workshopCollected)} trend="Jobs paid by customers" trendUp={true} delay="0s" />
+              <StatCard title="Awaiting Payment" value={formatCompactLKR(workshopAwaiting)} exactValue={formatLKR(workshopAwaiting)} trend={workshopAwaiting > 0 ? "Invoiced, not yet collected" : "Nothing outstanding"} trendUp={workshopAwaiting === 0} delay="0.05s" />
+              <StatCard title="Retail Revenue" value={formatCompactLKR(retailRevenueTotal)} exactValue={formatLKR(retailRevenueTotal)} trend={`${retailRevenue.length} transactions`} trendUp={true} delay="0.1s" />
+              <StatCard title="Fuel Station Cash" value={formatCompactLKR(fuelCashCleared)} exactValue={formatLKR(fuelCashCleared)} trend="Approved shift handovers" trendUp={true} delay="0.15s" />
             </div>
 
             <div className="grid lg:grid-cols-2 gap-8">
@@ -975,25 +1062,34 @@ export default function PayablesDashboard() {
                       <tr className="border-b border-slate-100 text-[10px] uppercase tracking-widest text-slate-400 font-black">
                         <th scope="col" className="px-6 py-4">Job Reference</th>
                         <th scope="col" className="px-6 py-4">Vehicle Plate</th>
-                        <th scope="col" className="px-6 py-4 text-right">Invoiced Amount</th>
+                        <th scope="col" className="px-6 py-4 text-center">Payment</th>
+                        <th scope="col" className="px-6 py-4 text-right">Amount</th>
                       </tr>
                     </thead>
                     <tbody className="text-sm font-medium text-slate-700 divide-y divide-slate-50">
-                      {workshopPagination.pageItems.map((job) => (
-                        <tr key={job.bookingID} className="hover:bg-slate-50/50">
-                          <td className="px-6 py-4 font-mono text-xs text-slate-500">JOB-{job.bookingID}</td>
-                          <td className="px-6 py-4 font-bold text-slate-900 font-mono tracking-wide">{(job.vehicleRegNo || "").toUpperCase()}</td>
-                          <td className="px-6 py-4 text-right font-black text-emerald-600 text-base">+{formatLKR(job.totalPartsCost || 0)}</td>
-                        </tr>
-                      ))}
+                      {workshopPagination.pageItems.map((job) => {
+                        const isCollected = job.status === "PAID";
+                        return (
+                          <tr key={job.bookingID} className="hover:bg-slate-50/50">
+                            <td className="px-6 py-4 font-mono text-xs text-slate-500">JOB-{job.bookingID}</td>
+                            <td className="px-6 py-4 font-bold text-slate-900 font-mono tracking-wide">{(job.vehicleRegNo || "").toUpperCase()}</td>
+                            <td className="px-6 py-4 text-center">
+                              <span className={`px-2 py-1 text-[9px] font-black uppercase tracking-wider rounded border ${isCollected ? "bg-emerald-50 text-emerald-600 border-emerald-200" : "bg-amber-50 text-amber-600 border-amber-200"}`}>
+                                {isCollected ? "Collected" : "Awaiting"}
+                              </span>
+                            </td>
+                            <td className={`px-6 py-4 text-right font-black text-base ${isCollected ? "text-emerald-600" : "text-amber-600"}`}>+{formatLKR(job.totalPartsCost || 0)}</td>
+                          </tr>
+                        );
+                      })}
                       {workshopPagination.pageItems.length === 0 && (
-                        <tr><td colSpan={3} className="px-6 py-8 text-center text-slate-400">{workshopSearch ? "No jobs match your search." : "No completed jobs found."}</td></tr>
+                        <tr><td colSpan={4} className="px-6 py-8 text-center text-slate-400">{workshopSearch ? "No jobs match your search." : "No completed jobs found."}</td></tr>
                       )}
                     </tbody>
                     {filteredWorkshop.length > 0 && (
                       <tfoot>
                         <tr className="border-t border-slate-100 bg-slate-50/70">
-                          <td colSpan={2} className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                          <td colSpan={3} className="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400">
                             {workshopSearch ? `Subtotal (${filteredWorkshop.length} matching)` : "Subtotal"}
                           </td>
                           <td className="px-6 py-3 text-right font-black text-slate-900">{formatLKR(filteredWorkshop.reduce((s, j) => s + (j.totalPartsCost || 0), 0))}</td>
@@ -1215,7 +1311,7 @@ export default function PayablesDashboard() {
                         className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 font-bold text-slate-800 outline-none focus:border-blue-500 disabled:opacity-60">
                         <option value="">-- Select Active Bill to Deduct From --</option>
                         {invoices
-                          .filter((inv) => inv.supplierName.toLowerCase() === settlementModal.rma?.supplierName.toLowerCase() && getInvoiceStatus(inv).balance > MONEY_EPSILON)
+                          .filter((inv) => settlementModal.rma != null && sameSupplier(inv, settlementModal.rma) && getInvoiceStatus(inv).balance > MONEY_EPSILON)
                           .map((inv) => {
                             const { balance } = getInvoiceStatus(inv);
                             return <option key={inv.invoiceId} value={inv.invoiceId}>Invoice #{inv.invoiceId} (Due: {inv.dueDate}) — Remaining Balance: {formatLKR(balance)}</option>;
@@ -1243,11 +1339,11 @@ export default function PayablesDashboard() {
   );
 }
 
-function StatCard({ title, value, trend, trendUp, delay }: { title: string; value: string; trend: string; trendUp: boolean; delay: string }) {
+function StatCard({ title, value, exactValue, trend, trendUp, delay }: { title: string; value: string; exactValue?: string; trend: string; trendUp: boolean; delay: string }) {
   return (
     <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm animate-fade-in-up" style={{ animationDelay: delay }}>
       <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">{title}</h3>
-      <div className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight mb-3 truncate" title={value}>{value}</div>
+      <div className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight mb-3" title={exactValue || value}>{value}</div>
       <div className={`text-xs font-bold flex items-center gap-1.5 ${trendUp ? "text-emerald-600" : "text-red-500"}`}>
         {!trendUp ? <IconAlertTriangle c="w-4 h-4" /> : <IconCheckCircle c="w-4 h-4" />}
         {trend}

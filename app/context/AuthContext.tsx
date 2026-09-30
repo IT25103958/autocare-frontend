@@ -12,6 +12,7 @@ export type AppRole =
   | "INVENTORY_MANAGER"
   | "SERVICE_CENTER_MANAGER"
   | "FUEL_STATION_SUPERVISOR"
+  | "FUEL_ATTENDANT"
   | "ACCOUNTS_FINANCE_OFFICER"
   | "TECHNICIAN"
   | "SUPPLIER"
@@ -22,12 +23,16 @@ interface User {
   username: string;
   role: AppRole;
   fullName: string;
+  // True after a temporary password was issued (new supplier login or a
+  // reset). The app sends the user to /change-password until it's changed.
+  mustChangePassword?: boolean;
 }
 
 interface AuthContextType {
   user: User | null;
   login: (userData: User) => void;
   logout: () => void;
+  markPasswordChanged: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -52,6 +57,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     document.cookie = `userRole=${userData.role}; path=/; max-age=86400; SameSite=Strict`;
   };
 
+  const markPasswordChanged = () => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, mustChangePassword: false };
+      localStorage.setItem("authUser", JSON.stringify(next));
+      return next;
+    });
+  };
+
   const logout = () => {
     setUser(null);
     localStorage.removeItem("authUser");
@@ -64,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, markPasswordChanged }}>
       {children}
     </AuthContext.Provider>
   );

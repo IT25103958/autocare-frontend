@@ -56,6 +56,12 @@ interface RmaCredit {
   financialStatus?: string;
 }
 
+interface SalaryRecord {
+  salaryId: number;
+  totalSalary?: number;
+  netSalary?: number;
+}
+
 interface PricingRule {
   id: number;
   ruleName: string;
@@ -75,7 +81,24 @@ interface ShiftHandover {
   expectedCash: number;
   declaredCash: number;
   variance: number;
+  // NEEDS_COUNT | PENDING_AUDIT | APPROVED | REJECTED (SYSTEM_FORCE_CLOSED on old rows)
   status: string;
+  // Card/QR takings in the shift — settled by the bank, not in the drawer.
+  nonCashSales?: number | null;
+  meterLiters?: number | null;
+  recordedLiters?: number | null;
+  literVariance?: number | null;
+  reviewedBy?: string | null;
+  reviewNote?: string | null;
+}
+
+// Must match autocare.fuel.* in the backend's application.properties.
+const HANDOVER_CASH_TOLERANCE = 100;
+const HANDOVER_METER_TOLERANCE_L = 1;
+
+function handoverNeedsNote(h: ShiftHandover) {
+  return Math.abs(h.variance) > HANDOVER_CASH_TOLERANCE
+    || (h.literVariance != null && Math.abs(h.literVariance) > HANDOVER_METER_TOLERANCE_L);
 }
 
 interface FetchErrors {
@@ -83,8 +106,15 @@ interface FetchErrors {
   pos?: boolean;
   payables?: boolean;
   rma?: boolean;
+  salary?: boolean;
   rules?: boolean;
   handovers?: boolean;
+  intraday?: boolean;
+}
+
+interface IntradayPoint {
+  hour: number;
+  amount: number;
 }
 
 type ToastType = "success" | "error" | "info";
@@ -227,9 +257,10 @@ function usePortalTarget() {
 }
 
 function exportHandoversCSV(rows: ShiftHandover[]) {
-  const headers = ["Pump", "Attendant", "Supervisor", "Expected Cash", "Declared Cash", "Variance", "Status"];
+  const headers = ["Pump", "Attendant", "Supervisor", "Expected Cash", "Declared Cash", "Variance", "Meter Liters", "POS Liters", "Liter Variance", "Status", "Reviewed By", "Review Note"];
   const body = rows.map((h) => [
-    h.pumpNumber, h.attendantUsername, h.supervisorUsername, h.expectedCash, h.declaredCash, h.variance, h.status,
+    h.pumpNumber, h.attendantUsername, h.supervisorUsername, h.expectedCash, h.declaredCash, h.variance,
+    h.meterLiters ?? "", h.recordedLiters ?? "", h.literVariance ?? "", h.status, h.reviewedBy ?? "", h.reviewNote ?? "",
   ]);
   const csv = [headers, ...body]
     .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
@@ -249,11 +280,12 @@ function exportHandoversCSV(rows: ShiftHandover[]) {
 // COMPONENT
 // =============================================================================
 export default function FinanceDashboard({ userName }: { userName?: string }) {
-  const [data, setData] = useState<{ bookings: Booking[]; pos: POSRecord[]; payables: Payable[]; rma: RmaCredit[] }>({
-    bookings: [], pos: [], payables: [], rma: [],
+  const [data, setData] = useState<{ bookings: Booking[]; pos: POSRecord[]; payables: Payable[]; rma: RmaCredit[]; salary: SalaryRecord[] }>({
+    bookings: [], pos: [], payables: [], rma: [], salary: [],
   });
   const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
   const [handovers, setHandovers] = useState<ShiftHandover[]>([]);
+  const [intraday, setIntraday] = useState<IntradayPoint[]>([]);
   const [newRule, setNewRule] = useState({ ruleName: "", ruleType: "TAX", percentage: 0 });
 
   const [loading, setLoading] = useState(true);
@@ -267,6 +299,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [confirmDelete, setConfirmDelete] = useState<PricingRule | null>(null);
+  const [reviewModal, setReviewModal] = useState<{ handover: ShiftHandover; action: "approve" | "reject"; note: string } | null>(null);
 
   const [ruleSearch, setRuleSearch] = useState("");
   const [handoverSearch, setHandoverSearch] = useState("");
@@ -302,19 +335,24 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
   // were silently losing that invoice's entire paid amount from the totals
   // the moment it got settled, making it look like paying off a debt in full
   // *improved* cashflow. Also pulls settled RMA credits so "revenue" is
-  // defined the same way here as on the Payables page.
+  // defined the same way here as on the Payables page, and pulls payroll
+  // (GET /api/salary) so authorizing a salary payout actually shows up as
+  // cash leaving the system — it previously wasn't fetched here at all, so
+  // Net Cashflow had no idea payroll existed.
   // ---------------------------------------------------------------------------
   const fetchAll = useCallback(async (isManualRefresh = false) => {
     if (isManualRefresh) setRefreshing(true);
     else setLoading(true);
 
-    const [bookRes, posRes, payRes, rmaRes, rulesRes, handRes] = await Promise.allSettled([
+    const [bookRes, posRes, payRes, rmaRes, salaryRes, rulesRes, handRes, intradayRes] = await Promise.allSettled([
       api.get<Booking[]>("/api/bookings"),
       api.get<POSRecord[]>("/api/pos/history"),
       api.get<Payable[]>("/api/payables"),
       api.get<RmaCredit[]>("/api/rma"),
+      api.get<SalaryRecord[]>("/api/salary"),
       api.get<PricingRule[]>("/api/pricing-rules"),
       api.get<ShiftHandover[]>("/api/pumps/handovers"),
+      api.get<IntradayPoint[]>("/api/analytics/intraday-cashflow"),
     ]);
 
     const errors: FetchErrors = {};
@@ -323,12 +361,15 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
     const pos = posRes.status === "fulfilled" ? posRes.value.data : (errors.pos = true, []);
     const payables = payRes.status === "fulfilled" ? payRes.value.data : (errors.payables = true, []);
     const rma = rmaRes.status === "fulfilled" ? rmaRes.value.data : (errors.rma = true, []);
+    const salary = salaryRes.status === "fulfilled" ? salaryRes.value.data : (errors.salary = true, []);
     const rules = rulesRes.status === "fulfilled" ? rulesRes.value.data : (errors.rules = true, []);
     const hand = handRes.status === "fulfilled" ? handRes.value.data : (errors.handovers = true, []);
+    const intradayData = intradayRes.status === "fulfilled" ? intradayRes.value.data : (errors.intraday = true, []);
 
-    setData({ bookings, pos, payables, rma });
+    setData({ bookings, pos, payables, rma, salary });
     setPricingRules(rules);
     setHandovers(hand);
+    setIntraday(intradayData);
     setFetchErrors(errors);
     setLastUpdated(new Date());
     setLoading(false);
@@ -407,14 +448,19 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
   // ---------------------------------------------------------------------------
   // SHIFT HANDOVER ACTIONS
   // ---------------------------------------------------------------------------
-  const handleApproveHandover = useCallback(async (h: ShiftHandover) => {
+  const handleReviewHandover = useCallback(async (h: ShiftHandover, action: "approve" | "reject", note: string) => {
     setPendingHandoverIds((prev) => new Set(prev).add(h.id));
     try {
-      await api.put(`/api/pumps/handovers/${h.id}/approve`, {});
-      pushToast("success", `Pump #${h.pumpNumber}'s handover was approved and cleared.`);
+      await api.put(`/api/pumps/handovers/${h.id}/${action}`, { note: note.trim() || null });
+      pushToast("success", action === "approve"
+        ? `Pump #${h.pumpNumber}'s handover was approved and cleared.`
+        : `Pump #${h.pumpNumber}'s handover was sent back to the supervisor for a recount.`);
+      setReviewModal(null);
       await fetchAll();
-    } catch {
-      pushToast("error", `Couldn't approve Pump #${h.pumpNumber}'s handover. Please try again.`);
+    } catch (err) {
+      // The backend explains why (e.g. a note is required when out of tolerance).
+      const data = (err as { response?: { data?: unknown } })?.response?.data;
+      pushToast("error", typeof data === "string" && data ? data : `Couldn't update Pump #${h.pumpNumber}'s handover. Please try again.`);
     } finally {
       setPendingHandoverIds((prev) => {
         const next = new Set(prev);
@@ -444,8 +490,23 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
       .filter((r) => r.financialStatus === "SETTLED")
       .reduce((sum, r) => sum + (r.totalValue || 0), 0);
 
-    const totalGrossRevenue = settledWorkshop + posRev + settledRmaRev;
-    const totalPendingCollection = pendingWorkshop;
+    // FUEL STATION CASH. Fuel sales live in their own table and never touch
+    // POS, so before this they were missing from every cash figure. Attendants
+    // take cash at the pump; it only becomes company cash once a supervisor
+    // has counted it (declaredCash) AND finance has approved the handover
+    // ("moved to corporate ledger"). We use declaredCash, not expectedCash, so
+    // a shortfall on a shift reduces cash rather than being hidden. Unapproved
+    // handovers are cash-in-transit — real, but not yet cleared — so they sit
+    // with Pending Collections, exactly like an unpaid workshop invoice.
+    const fuelCashCleared = handovers
+      .filter((h) => h.status === "APPROVED")
+      .reduce((sum, h) => sum + (h.declaredCash || 0), 0);
+    const fuelCashPending = handovers
+      .filter((h) => h.status !== "APPROVED")
+      .reduce((sum, h) => sum + (h.declaredCash || 0), 0);
+
+    const totalGrossRevenue = roundMoney(settledWorkshop + posRev + settledRmaRev + fuelCashCleared);
+    const totalPendingCollection = roundMoney(pendingWorkshop + fuelCashPending);
 
     // Only invoices with a genuine remaining balance count toward debt — a
     // fully paid invoice (balance <= 0, allowing for floating point noise)
@@ -460,16 +521,30 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
     // /outstanding endpoint this figure used to read from — silently dropping
     // that money from "Expenses Paid" and inflating Net Cashflow as a result.
     const totalPaidOut = data.payables.reduce((sum, p) => sum + (p.amountPaid || 0), 0);
-    const netCashflow = totalGrossRevenue - totalPaidOut;
+    // Payroll has no partial-payment concept — a salary record only exists
+    // once it's been processed, which is the same instant the payout happens
+    // — so the full sum here is genuine cash already disbursed.
+    const totalPayrollPaid = data.salary.reduce((sum, r) => sum + (r.totalSalary ?? r.netSalary ?? 0), 0);
+    // NET CASH = everything received − everything already paid out.
+    //   received  : PAID workshop jobs + POS + settled RMA credits + cleared fuel cash
+    //   paid out  : supplier payments made (amountPaid, not the remaining
+    //               balance — that's a liability, not cash gone) + payroll
+    // Unpaid/uncleared money (COMPLETED jobs, unapproved shift cash) is
+    // deliberately excluded — it isn't in the bank yet.
+    const netCashflow = roundMoney(totalGrossRevenue - totalPaidOut - totalPayrollPaid);
     const outstandingPayablesCount = data.payables.filter((p) => {
       const balance = roundMoney((p.totalInvoiceAmount || 0) - (p.amountPaid || 0));
       return balance > 0.005;
     }).length;
 
+    // The first four bars add up to Total Gross Revenue; the last is money
+    // earned but not yet collected/cleared (Pending Collections).
     const revenueStreamData = [
       { name: "Retail POS", amount: posRev, fill: "#3b82f6" },
-      { name: "Workshop (Paid)", amount: settledWorkshop, fill: "#10b981" },
-      { name: "Workshop (Pending)", amount: pendingWorkshop, fill: "#f59e0b" },
+      { name: "Workshop", amount: settledWorkshop, fill: "#10b981" },
+      { name: "Fuel Station", amount: fuelCashCleared, fill: "#06b6d4" },
+      { name: "RMA Credits", amount: settledRmaRev, fill: "#8b5cf6" },
+      { name: "Pending", amount: totalPendingCollection, fill: "#f59e0b" },
     ];
 
     const expenseCategories: Record<string, number> = {};
@@ -487,33 +562,45 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
 
     const cashFlowPipeline = [
       { name: "Gross Income", value: totalGrossRevenue, fill: "#10b981" },
-      { name: "Expenses Paid", value: totalPaidOut, fill: "#3b82f6" },
+      { name: "Supplier Paid", value: totalPaidOut, fill: "#3b82f6" },
+      { name: "Payroll Paid", value: totalPayrollPaid, fill: "#a855f7" },
       { name: "Pending Debt", value: totalSupplierDebt, fill: "#ef4444" },
     ];
 
-    // NOTE: no time-series endpoint exists yet on the backend, so this is a
-    // modeled distribution of the day's total against typical fuel-station
-    // traffic shape — not measured hourly revenue. Labeled as such in the UI
-    // below so nobody mistakes it for real intraday data.
-    const intradayData = [
-      { time: "12 AM", modeled: totalGrossRevenue * 0.01 },
-      { time: "4 AM", modeled: totalGrossRevenue * 0.02 },
-      { time: "8 AM", modeled: totalGrossRevenue * 0.15 },
-      { time: "12 PM", modeled: totalGrossRevenue * 0.45 },
-      { time: "4 PM", modeled: totalGrossRevenue * 0.25 },
-      { time: "8 PM", modeled: totalGrossRevenue * 0.08 },
-      { time: "11:59 PM", modeled: totalGrossRevenue * 0.04 },
-    ];
-
     return {
-      totalGrossRevenue, totalPendingCollection, totalSupplierDebt, netCashflow,
-      outstandingPayablesCount, revenueStreamData, debtPieData, cashFlowPipeline, intradayData,
+      totalGrossRevenue, totalPendingCollection, totalSupplierDebt, netCashflow, totalPayrollPaid, totalPaidOut,
+      fuelCashCleared,
+      outstandingPayablesCount, revenueStreamData, debtPieData, cashFlowPipeline,
     };
-  }, [data]);
+  }, [data, handovers]);
+
+  // Real intraday data (GET /api/analytics/intraday-cashflow) — fuel + retail
+  // POS sales bucketed by the hour they actually happened, for today only.
+  // Hours later than the current time are legitimately 0 (they haven't
+  // happened yet), not a bug — that's what makes this real instead of a
+  // projected curve. Workshop revenue is excluded; see AnalyticsController's
+  // comment for why.
+  const intradayChartData = useMemo(() => {
+    return intraday
+      .slice()
+      .sort((a, b) => a.hour - b.hour)
+      .map((point) => ({
+        time: new Date(2000, 0, 1, point.hour).toLocaleTimeString("en-US", { hour: "numeric", hour12: true }),
+        amount: point.amount,
+      }));
+  }, [intraday]);
+  const hasIntradayActivity = intradayChartData.some((point) => point.amount > 0);
 
   const PIE_COLORS = ["#0f172a", "#2563eb", "#38bdf8", "#94a3b8", "#1e293b"];
   const formatLKR = useCallback(
     (amt: number) => new Intl.NumberFormat("en-LK", { style: "currency", currency: "LKR" }).format(amt || 0),
+    []
+  );
+  // Full precision is too wide for KPI cards / the hero number once figures
+  // reach the millions (it clips to "LKR 1,344,2…"). Cards use compact
+  // notation; exact values stay in tooltips and every table.
+  const formatCompactLKR = useCallback(
+    (amt: number) => new Intl.NumberFormat("en-LK", { style: "currency", currency: "LKR", notation: "compact", maximumFractionDigits: 2 }).format(amt || 0),
     []
   );
 
@@ -589,6 +676,70 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
             </div>
           ))}
         </div>,
+        portalTarget
+      )}
+
+      {/* HANDOVER REVIEW MODAL — approve (note needed if out of tolerance) or reject (reason required). */}
+      {portalTarget && reviewModal && createPortal(
+        (() => {
+          const h = reviewModal.handover;
+          const isReject = reviewModal.action === "reject";
+          const noteRequired = isReject || handoverNeedsNote(h);
+          const noteOk = !noteRequired || reviewModal.note.trim().length >= 5;
+          return (
+            <div
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="review-handover-title"
+              onKeyDown={(e) => { if (e.key === "Escape") setReviewModal(null); }}
+            >
+              <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6">
+                <h3 id="review-handover-title" className="text-lg font-black text-slate-900 mb-1.5">
+                  {isReject ? "Send back for recount?" : "Approve this handover?"}
+                </h3>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Pump #{h.pumpNumber} · @{h.attendantUsername}</p>
+                <div className="grid grid-cols-2 gap-2 text-sm mb-4">
+                  <span className="text-slate-500">Cash variance</span>
+                  <span className={`text-right font-black ${h.variance < 0 ? "text-red-600" : h.variance > 0 ? "text-blue-600" : "text-emerald-600"}`}>{formatLKR(h.variance)}</span>
+                  <span className="text-slate-500">Meter vs POS</span>
+                  <span className="text-right font-black text-slate-900">
+                    {h.literVariance == null ? "Not reconciled" : `${h.literVariance > 0 ? "+" : ""}${h.literVariance.toFixed(2)} L`}
+                  </span>
+                </div>
+                {!isReject && noteRequired && (
+                  <p className="text-xs font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3">
+                    Outside tolerance (±{formatLKR(HANDOVER_CASH_TOLERANCE)} cash, ±{HANDOVER_METER_TOLERANCE_L} L meter). Explain why you are approving it.
+                  </p>
+                )}
+                <label className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5">
+                  {isReject ? "Reason (required)" : noteRequired ? "Approval note (required)" : "Note (optional)"}
+                </label>
+                <textarea
+                  rows={3}
+                  value={reviewModal.note}
+                  onChange={(e) => setReviewModal({ ...reviewModal, note: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm font-medium outline-none focus:border-blue-400 mb-5"
+                />
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setReviewModal(null)}
+                    className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-bold text-sm hover:bg-slate-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => handleReviewHandover(h, reviewModal.action, reviewModal.note)}
+                    disabled={!noteOk || pendingHandoverIds.has(h.id)}
+                    className={`flex-1 py-2.5 rounded-xl text-white font-bold text-sm disabled:opacity-50 transition-colors ${isReject ? "bg-red-600 hover:bg-red-700" : "bg-slate-900 hover:bg-blue-600"}`}
+                  >
+                    {pendingHandoverIds.has(h.id) ? "Saving..." : isReject ? "Reject" : "Approve & Clear"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })(),
         portalTarget
       )}
 
@@ -673,16 +824,19 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
         </div>
         <div className="relative z-10 text-right">
           <p className="text-xs font-black uppercase tracking-widest text-emerald-400 mb-1">Net Cashflow Position</p>
-          <p className="text-4xl lg:text-5xl font-black text-white drop-shadow-md">{formatLKR(analytics.netCashflow)}</p>
+          <p className={`text-4xl lg:text-5xl font-black drop-shadow-md ${analytics.netCashflow < 0 ? "text-red-400" : "text-white"}`}>{formatLKR(analytics.netCashflow)}</p>
+          <p className="text-[11px] font-semibold text-slate-400 mt-2">
+            {formatCompactLKR(analytics.totalGrossRevenue)} received &minus; {formatCompactLKR(analytics.totalPaidOut)} suppliers &minus; {formatCompactLKR(analytics.totalPayrollPaid)} payroll
+          </p>
         </div>
         <div className="absolute -top-32 -right-32 w-[30rem] h-[30rem] bg-blue-600/20 rounded-full blur-[100px] pointer-events-none" />
       </div>
 
       {/* KPI CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KpiCard icon={<IconWallet className="w-5 h-5" />} label="Total Gross Revenue" value={formatLKR(analytics.totalGrossRevenue)} accent="text-emerald-600 bg-emerald-50" />
-        <KpiCard icon={<IconAlertTriangle className="w-5 h-5" />} label="Current Supplier Debt" value={formatLKR(analytics.totalSupplierDebt)} accent="text-red-600 bg-red-50" />
-        <KpiCard icon={<IconClock className="w-5 h-5" />} label="Pending Collections" value={formatLKR(analytics.totalPendingCollection)} accent="text-amber-600 bg-amber-50" />
+        <KpiCard icon={<IconWallet className="w-5 h-5" />} label="Total Gross Revenue" value={formatCompactLKR(analytics.totalGrossRevenue)} exactValue={formatLKR(analytics.totalGrossRevenue)} sub="Cash actually received" accent="text-emerald-600 bg-emerald-50" />
+        <KpiCard icon={<IconAlertTriangle className="w-5 h-5" />} label="Current Supplier Debt" value={formatCompactLKR(analytics.totalSupplierDebt)} exactValue={formatLKR(analytics.totalSupplierDebt)} sub="Still owed to suppliers" accent="text-red-600 bg-red-50" />
+        <KpiCard icon={<IconClock className="w-5 h-5" />} label="Pending Collections" value={formatCompactLKR(analytics.totalPendingCollection)} exactValue={formatLKR(analytics.totalPendingCollection)} sub="Unpaid jobs + shift cash awaiting audit" accent="text-amber-600 bg-amber-50" />
         <KpiCard icon={<IconFileText className="w-5 h-5" />} label="Accounts Payable Ledger" value={String(analytics.outstandingPayablesCount)} sub="unpaid invoices" accent="text-blue-600 bg-blue-50" />
       </div>
 
@@ -690,20 +844,29 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
       <div className="grid lg:grid-cols-2 gap-8">
         <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40">
           <div className="mb-6 flex justify-between items-start gap-3">
-            <h3 className="text-lg font-black text-slate-900">Intraday Cash Flow</h3>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 text-slate-500 rounded-full text-[10px] font-black uppercase tracking-widest" title="Modeled from today's total using a typical station traffic curve — not a live hourly feed.">
-              <IconInfo className="w-3 h-3" /> Modeled estimate
+            <div>
+              <h3 className="text-lg font-black text-slate-900">Intraday Cash Flow</h3>
+              <p className="text-[11px] text-slate-400 font-semibold mt-0.5">Fuel &amp; Retail POS only &middot; resets daily</p>
+            </div>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 text-emerald-600 rounded-full text-[10px] font-black uppercase tracking-widest flex-shrink-0" title="Real sales, bucketed by the hour they happened today. Workshop revenue isn't included — ServiceBooking has no timestamp for when a job was actually paid.">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live &middot; today
             </span>
           </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={analytics.intradayData} margin={{ top: 10, right: 10, left: 20, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-              <XAxis dataKey="time" tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} tickFormatter={(val) => `${val / 1000}k`} />
-              <Tooltip contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value: number) => [formatLKR(value), "Estimated"]} />
-              <Line type="monotone" dataKey="modeled" stroke="#3b82f6" strokeWidth={4} dot={{ r: 4, fill: "#3b82f6", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 6 }} />
-            </LineChart>
-          </ResponsiveContainer>
+          {hasIntradayActivity ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={intradayChartData} margin={{ top: 10, right: 10, left: 20, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="time" interval={2} tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} tickFormatter={(val) => `${val / 1000}k`} />
+                <Tooltip contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value: number) => [formatLKR(value), "Collected"]} />
+                <Line type="monotone" dataKey="amount" stroke="#3b82f6" strokeWidth={4} dot={{ r: 3, fill: "#3b82f6", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 6 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-[300px] flex items-center justify-center text-center px-6">
+              <p className="text-sm font-bold text-slate-400">No fuel or retail sales recorded yet today.</p>
+            </div>
+          )}
         </div>
 
         <div className="bg-white p-8 rounded-3xl border border-slate-100 shadow-xl shadow-slate-200/40 flex flex-col">
@@ -944,33 +1107,57 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
                       <p className="text-xs text-slate-400 font-mono mt-0.5">@{h.attendantUsername}</p>
                     </td>
                     <td className="px-8 py-4 font-bold text-slate-600">@{h.supervisorUsername}</td>
-                    <td className="px-8 py-4 text-right font-bold text-slate-900">{formatLKR(h.expectedCash)}</td>
+                    <td className="px-8 py-4 text-right font-bold text-slate-900">
+                      {formatLKR(h.expectedCash)}
+                      {h.nonCashSales != null && h.nonCashSales > 0 && (
+                        <p className="text-[10px] font-bold text-slate-400 mt-0.5">+ {formatLKR(h.nonCashSales)} card/QR</p>
+                      )}
+                    </td>
                     <td className="px-8 py-4 text-right font-bold text-slate-900">{formatLKR(h.declaredCash)}</td>
                     <td className="px-8 py-4 text-right font-black">
                       <span className={`inline-flex items-center gap-1 ${h.variance < 0 ? "text-red-500" : h.variance > 0 ? "text-blue-500" : "text-emerald-600"}`}>
                         {h.variance !== 0 && <IconAlertTriangle className="w-3.5 h-3.5" />}
                         {h.variance > 0 ? `+${formatLKR(h.variance)}` : formatLKR(h.variance)}
                       </span>
+                      <p className={`text-[10px] font-bold mt-0.5 ${h.literVariance != null && Math.abs(h.literVariance) > HANDOVER_METER_TOLERANCE_L ? "text-red-500" : "text-slate-400"}`}>
+                        {h.literVariance == null ? "meter n/a" : `meter ${h.literVariance > 0 ? "+" : ""}${h.literVariance.toFixed(2)} L`}
+                      </p>
                     </td>
                     <td className="px-8 py-4 text-center">
-                      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border ${
-                        h.status === "APPROVED" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-amber-50 text-amber-700 border-amber-200"
+                      <span
+                        title={h.reviewNote ? `${h.reviewedBy ?? ""}: ${h.reviewNote}` : undefined}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border ${
+                        h.status === "APPROVED" ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                          : h.status === "REJECTED" ? "bg-red-50 text-red-700 border-red-200"
+                          : "bg-amber-50 text-amber-700 border-amber-200"
                       }`}>
                         {h.status === "APPROVED" ? <IconCheckCircle className="w-3 h-3" /> : <IconClock className="w-3 h-3" />}
-                        {h.status}
+                        {h.status.replace(/_/g, " ")}
                       </span>
                     </td>
                     <td className="px-8 py-4 text-right">
-                      {h.status !== "APPROVED" ? (
-                        <button
-                          onClick={() => handleApproveHandover(h)}
-                          disabled={isPending}
-                          className="px-4 py-2 bg-slate-900 hover:bg-blue-600 disabled:opacity-60 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm active:scale-95"
-                        >
-                          {isPending ? "Approving..." : "Approve & Clear"}
-                        </button>
-                      ) : (
+                      {h.status === "PENDING_AUDIT" ? (
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => setReviewModal({ handover: h, action: "reject", note: "" })}
+                            disabled={isPending}
+                            className="px-3 py-2 bg-white border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-60 rounded-xl text-xs font-black uppercase tracking-widest transition-all"
+                          >
+                            Reject
+                          </button>
+                          <button
+                            onClick={() => setReviewModal({ handover: h, action: "approve", note: "" })}
+                            disabled={isPending}
+                            className="px-4 py-2 bg-slate-900 hover:bg-blue-600 disabled:opacity-60 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all shadow-sm active:scale-95"
+                          >
+                            {isPending ? "Saving..." : "Approve & Clear"}
+                          </button>
+                        </div>
+                      ) : h.status === "APPROVED" ? (
                         <span className="text-xs font-bold text-slate-400">Archived</span>
+                      ) : (
+                        // NEEDS_COUNT / REJECTED: waiting on the supervisor's (re)count.
+                        <span className="text-xs font-bold text-amber-600">Awaiting supervisor count</span>
                       )}
                     </td>
                   </tr>
@@ -998,15 +1185,16 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
 // PRESENTATIONAL SUBCOMPONENTS
 // =============================================================================
 function KpiCard({
-  icon, label, value, sub, accent,
-}: { icon: React.ReactNode; label: string; value: string; sub?: string; accent: string }) {
+  icon, label, value, exactValue, sub, accent,
+}: { icon: React.ReactNode; label: string; value: string; exactValue?: string; sub?: string; accent: string }) {
   return (
     <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-lg shadow-slate-200/50 hover:-translate-y-1 transition-transform">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</h3>
         <span className={`w-8 h-8 rounded-xl flex items-center justify-center ${accent}`}>{icon}</span>
       </div>
-      <div className="text-3xl font-black text-slate-900">{value}</div>
+      <div className="text-3xl font-black text-slate-900" title={exactValue || value}>{value}</div>
+      {exactValue && <p className="text-[11px] text-slate-400 font-semibold mt-1 truncate">{exactValue}</p>}
       {sub && <p className="text-xs text-slate-400 font-semibold mt-1">{sub}</p>}
     </div>
   );

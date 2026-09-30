@@ -34,12 +34,8 @@ export default function MasterRMADashboard() {
   const fetchRmas = async () => {
     try {
       const response = await axios.get("http://localhost:8080/api/rma", getAuthHeader());
-      let fetchedRmas = response.data;
-
-      if (user?.role === "SUPPLIER") {
-         const myName = user.fullName || user.username;
-         fetchedRmas = fetchedRmas.filter((r: RMARecord) => r.supplierName === myName);
-      }
+      // Suppliers only receive their own company's returns from the server.
+      const fetchedRmas = response.data;
 
       setRmas(fetchedRmas.sort((a: RMARecord, b: RMARecord) => b.id - a.id));
     } catch (err) {
