@@ -17,10 +17,11 @@ interface ServiceBooking {
 }
 
 interface CustomerProfile {
-  id: number;
+  customerID: number;
   name: string;
   email: string;
-  loyaltyPoints?: number;
+  loyaltyPoints: number;
+  membershipTier: string;
 }
 
 export default function CustomerDashboard() {
@@ -28,6 +29,7 @@ export default function CustomerDashboard() {
   const [isMounted, setIsMounted] = useState(false);
   const [bookings, setBookings] = useState<ServiceBooking[]>([]);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
+  const [profileMissing, setProfileMissing] = useState(false);
 
   const getAuthHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem("jwtToken")}` } });
 
@@ -39,12 +41,14 @@ export default function CustomerDashboard() {
       try {
         const [bookingsRes, profileRes] = await Promise.all([
           axios.get("http://localhost:8080/api/bookings/my-bookings", getAuthHeader()).catch(() => ({ data: [] })),
-          axios.get("http://localhost:8080/api/customers/my-profile", getAuthHeader()).catch(() => ({ data: null }))
+          axios.get("http://localhost:8080/api/customers/my-profile", getAuthHeader())
+            .catch(err => ({ data: null, missing: err?.response?.status === 404 }))
         ]);
 
         // Sort newest first
         setBookings(bookingsRes.data.sort((a: ServiceBooking, b: ServiceBooking) => b.bookingID - a.bookingID));
         setProfile(profileRes.data);
+        setProfileMissing("missing" in profileRes && profileRes.missing === true);
       } catch (error) {
         console.error("Failed to load customer data", error);
       }
@@ -109,6 +113,18 @@ export default function CustomerDashboard() {
             Book New Service
           </Link>
         </div>
+
+        {profileMissing && (
+          <div className="mb-8 p-5 rounded-2xl bg-blue-50 border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <p className="font-bold text-slate-900">Finish setting up your profile</p>
+              <p className="text-sm text-slate-600 mt-1">Add your vehicle and phone number to earn reward points and raise support tickets.</p>
+            </div>
+            <Link href="/customers/profile" className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-xl whitespace-nowrap text-center">
+              Complete Profile
+            </Link>
+          </div>
+        )}
 
         {/* --- DASHBOARD GRID --- */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -212,16 +228,23 @@ export default function CustomerDashboard() {
             {/* --- LOYALTY POINTS WIDGET --- */}
             <div className="bg-gradient-to-br from-slate-900 to-slate-800 p-8 rounded-3xl shadow-lg relative overflow-hidden animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
               <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/20 rounded-full blur-2xl"></div>
-              <h2 className="text-white font-bold tracking-tight mb-2 relative z-10">Lanka Auto Rewards</h2>
+              <div className="flex items-center justify-between mb-2 relative z-10">
+                <h2 className="text-white font-bold tracking-tight">Lanka Auto Rewards</h2>
+                {profile?.membershipTier && (
+                  <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-widest bg-white/10 text-yellow-300 border border-white/20">
+                    {profile.membershipTier}
+                  </span>
+                )}
+              </div>
               <div className="flex items-baseline gap-2 relative z-10 mb-6">
                 <span className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-yellow-500">
                   {profile?.loyaltyPoints || 0}
                 </span>
                 <span className="text-sm font-bold text-slate-400">Pts</span>
               </div>
-              <button className="w-full py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs uppercase tracking-widest font-black rounded-xl transition-colors relative z-10">
-                Redeem for Service
-              </button>
+              <Link href="/customers/profile" className="block text-center w-full py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs uppercase tracking-widest font-black rounded-xl transition-colors relative z-10">
+                View Membership
+              </Link>
             </div>
 
             {/* --- SERVICE HISTORY --- */}

@@ -114,6 +114,7 @@ function NavigationBar() {
         links.push(
           { name: "Support Tickets", href: "/complaints" },
           { name: "Customers", href: "/customers" },
+          { name: "Membership", href: "/membership" },
           { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
