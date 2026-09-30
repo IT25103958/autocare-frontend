@@ -4,17 +4,10 @@ import { useState, useEffect } from "react";
 import axios from "axios";
 import { useAuth } from "../../context/AuthContext";
 import Link from "next/link";
+import CustomerUpcoming from "../../bookings/_components/CustomerUpcoming";
+import { Booking, STATUS_LABEL, rupees } from "../../bookings/_components/booking";
 
-interface ServiceBooking {
-  bookingID: number;
-  vehicleRegNo: string;
-  vehicleModel?: string;
-  servicePackage: string;
-  status: string;
-  preferredDate: string;
-  totalPartsCost?: number;
-  laborCharge?: number;
-}
+type ServiceBooking = Booking & { vehicleModel?: string };
 
 interface CustomerProfile {
   customerID: number;
@@ -30,39 +23,37 @@ export default function CustomerDashboard() {
   const [bookings, setBookings] = useState<ServiceBooking[]>([]);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [profileMissing, setProfileMissing] = useState(false);
+  const [cutoffHours, setCutoffHours] = useState(12);
 
   const getAuthHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem("jwtToken")}` } });
+
+  const loadBookings = () =>
+    axios.get("http://localhost:8080/api/bookings/my-bookings", getAuthHeader())
+      .then(res => setBookings(res.data.sort((a: ServiceBooking, b: ServiceBooking) => b.bookingID - a.bookingID)))
+      .catch(() => setBookings([]));
 
   useEffect(() => {
     setIsMounted(true);
     if (!user) return;
 
-    const fetchCustomerData = async () => {
-      try {
-        const [bookingsRes, profileRes] = await Promise.all([
-          axios.get("http://localhost:8080/api/bookings/my-bookings", getAuthHeader()).catch(() => ({ data: [] })),
-          axios.get("http://localhost:8080/api/customers/my-profile", getAuthHeader())
-            .catch(err => ({ data: null, missing: err?.response?.status === 404 }))
-        ]);
-
-        // Sort newest first
-        setBookings(bookingsRes.data.sort((a: ServiceBooking, b: ServiceBooking) => b.bookingID - a.bookingID));
-        setProfile(profileRes.data);
-        setProfileMissing("missing" in profileRes && profileRes.missing === true);
-      } catch (error) {
-        console.error("Failed to load customer data", error);
-      }
-    };
-
-    fetchCustomerData();
+    loadBookings();
+    axios.get("http://localhost:8080/api/customers/my-profile", getAuthHeader())
+      .then(res => { setProfile(res.data); setProfileMissing(false); })
+      .catch(err => { setProfile(null); setProfileMissing(err?.response?.status === 404); });
+    axios.get("http://localhost:8080/api/bookings/rules", getAuthHeader())
+      .then(res => setCutoffHours(res.data.changeCutoffHours ?? 12))
+      .catch(() => {});
   }, [user]);
 
   // --- DYNAMIC DATA COMPUTATIONS ---
 
-  // 1. Identify if a car is currently in the workshop
-  const activeBooking = bookings.find(b =>
-    b.status !== "COMPLETED" && b.status !== "PAID" && b.status !== "CANCELLED"
-  );
+  // 1. A vehicle in the workshop right now (being serviced, delayed or ready to collect)
+  const activeBooking = bookings.find(b => ["IN_PROGRESS", "DELAYED", "COMPLETED"].includes(b.status));
+
+  // Upcoming appointments, soonest first
+  const upcoming = bookings
+    .filter(b => ["PENDING", "CONFIRMED"].includes(b.status))
+    .sort((a, b) => a.preferredDate.localeCompare(b.preferredDate));
 
   // 2. Map service history
   const history = bookings.filter(b => b.status === "COMPLETED" || b.status === "PAID");
@@ -84,10 +75,8 @@ export default function CustomerDashboard() {
   let progressWidth = "0%";
   let progressStage = 0;
   if (activeBooking) {
-    if (activeBooking.status === "PENDING") { progressWidth = "25%"; progressStage = 1; }
-    else if (activeBooking.status === "IN_PROGRESS") { progressWidth = "50%"; progressStage = 2; }
-    else if (activeBooking.status === "WASHING") { progressWidth = "75%"; progressStage = 3; }
-    else if (activeBooking.status === "READY") { progressWidth = "100%"; progressStage = 4; }
+    if (activeBooking.status === "IN_PROGRESS" || activeBooking.status === "DELAYED") { progressWidth = "60%"; progressStage = 2; }
+    else if (activeBooking.status === "COMPLETED") { progressWidth = "100%"; progressStage = 3; }
   }
 
   if (!isMounted) return null;
@@ -158,19 +147,29 @@ export default function CustomerDashboard() {
                     </div>
                     <div className="text-right hidden sm:block z-10">
                       <div className="text-xs font-black text-blue-600 uppercase tracking-widest bg-blue-50 px-3 py-1 rounded-md inline-block mb-1 border border-blue-100">
-                        {activeBooking.status.replace('_', ' ')}
+                        {STATUS_LABEL[activeBooking.status] || activeBooking.status.replace('_', ' ')}
                       </div>
                       <div className="text-xs font-bold text-slate-400 mt-1">Ref: JOB-{activeBooking.bookingID}</div>
                     </div>
                   </div>
 
+                  {activeBooking.status === "DELAYED" && activeBooking.delayReason && (
+                    <div className="mt-4 p-3 rounded-xl bg-orange-50 border border-orange-200 text-sm text-orange-900">
+                      <span className="font-bold">Delayed: </span>{activeBooking.delayReason}
+                    </div>
+                  )}
+                  {activeBooking.status === "COMPLETED" && (
+                    <div className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-900">
+                      <span className="font-bold">Ready for pickup.</span> Amount due: <span className="font-bold">{rupees(activeBooking.netTotal)}</span>
+                    </div>
+                  )}
+
                   {/* DYNAMIC PROGRESS BAR */}
                   <div className="mt-8">
                     <div className="flex justify-between text-xs font-black text-slate-400 uppercase tracking-wider mb-2 px-1">
                       <span className={progressStage >= 1 ? "text-blue-600" : ""}>Checked In</span>
-                      <span className={progressStage >= 2 ? "text-blue-600" : ""}>Servicing</span>
-                      <span className={progressStage >= 3 ? "text-blue-600" : ""}>Washing</span>
-                      <span className={progressStage >= 4 ? "text-emerald-600" : ""}>Ready</span>
+                      <span className={progressStage >= 2 ? "text-blue-600" : ""}>{activeBooking.status === "DELAYED" ? "Delayed" : "Servicing"}</span>
+                      <span className={progressStage >= 3 ? "text-emerald-600" : ""}>Ready</span>
                     </div>
                     <div className="h-2.5 w-full bg-slate-100 rounded-full overflow-hidden">
                       <div
@@ -190,6 +189,8 @@ export default function CustomerDashboard() {
                 </div>
               )}
             </div>
+
+            <CustomerUpcoming bookings={upcoming} cutoffHours={cutoffHours} onChanged={loadBookings} />
 
             {/* --- MY GARAGE --- */}
             <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm animate-fade-in-up" style={{ animationDelay: '0.3s' }}>

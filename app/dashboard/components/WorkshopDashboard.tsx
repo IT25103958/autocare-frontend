@@ -36,16 +36,19 @@ export default function WorkshopDashboard() {
 
   if (loading) return <div className="animate-pulse h-64 bg-slate-100 rounded-3xl"></div>;
 
-  const activeBays = bookings.filter(b => b.status === "IN_PROGRESS").length;
+  const activeBays = bookings.filter(b => b.status === "IN_PROGRESS" || b.status === "DELAYED").length;
   const pendingJobs = bookings.filter(b => b.status === "PENDING").length;
-  const recentCompleted = bookings.filter(b => b.status === "COMPLETED").slice(0, 3); // Top 3 recent
+  const recentCompleted = bookings
+    .filter(b => b.status === "COMPLETED" || b.status === "PAID")
+    .sort((a, b) => b.bookingID - a.bookingID)
+    .slice(0, 3); // 3 most recent
 
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div className="flex justify-between items-center bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
         <div>
           <h2 className="text-3xl font-black text-slate-900 tracking-tight">Workshop Operations</h2>
-          <p className="text-slate-500 font-medium mt-1">Welcome, {user?.sub}. Here is the live service floor status.</p>
+          <p className="text-slate-500 font-medium mt-1">Welcome, {user?.fullName || user?.username}. Here is the live service floor status.</p>
         </div>
         <Link href="/bookings" className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-lg transition-all">
           Manage Job Cards
@@ -62,7 +65,7 @@ export default function WorkshopDashboard() {
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Pending Bookings</h3>
           <div className="text-4xl font-black text-amber-500 mb-2">{pendingJobs} <span className="text-lg text-slate-400">Vehicles</span></div>
-          <p className="text-xs font-bold text-amber-700 bg-amber-50 inline-block px-2 py-1 rounded-md">Awaiting Bay Assignment</p>
+          <p className="text-xs font-bold text-amber-700 bg-amber-50 inline-block px-2 py-1 rounded-md">Awaiting Technician & Bay</p>
         </div>
 
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
