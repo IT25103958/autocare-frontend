@@ -8,6 +8,10 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "../context/AuthContext";
 import Link from "next/link";
+import InventoryOverview from "./_components/InventoryOverview";
+import StockHistoryDrawer from "./_components/StockHistoryDrawer";
+import AdjustStockDialog from "./_components/AdjustStockDialog";
+import { InventoryPart } from "./_components/inventory";
 
 // =============================================================================
 // API CLIENT
@@ -49,13 +53,18 @@ const partSchema = z.object({
   unitPrice: z.coerce.number().min(0.01, "Price must be greater than Rs. 0."),
   currentStock: z.coerce.number().int("Decimals are not allowed.").min(0, "Stock cannot be negative."),
   minimumStockLevel: z.coerce.number().int("Decimals are not allowed.").min(1, "Minimum stock level must be at least 1."),
+  // Restock order size suggested on the low-stock list (0 = automatic: back up to 2x the minimum).
+  reorderQuantity: z.coerce.number().int("Decimals are not allowed.").min(0, "Can't be negative.").optional(),
   // Optional only when currentStock is 0 — enforced by the object-level
   // refine below. Real stock needs a real source and cost; without that it's
   // invisible to Finance forever, with no way to add the invoice later.
   initialSupplierName: z.string().optional(),
   costPerUnit: z.coerce.number().min(0, "Cost cannot be negative.").optional(),
+  // Set while editing an existing part: the initial-purchase rule only applies to new parts
+  // (it used to block editing any part that had stock).
+  isEdit: z.boolean().optional(),
 }).refine(
-  (data) => data.currentStock === 0 || (!!data.initialSupplierName && !!data.costPerUnit && data.costPerUnit > 0),
+  (data) => data.isEdit || data.currentStock === 0 || (!!data.initialSupplierName && !!data.costPerUnit && data.costPerUnit > 0),
   { message: "Stock above 0 needs a supplier and cost — otherwise this stock is invisible to Finance.", path: ["initialSupplierName"] }
 );
 
@@ -76,6 +85,8 @@ interface SparePart {
   costPrice?: number;
   currentStock: number;
   minimumStockLevel: number;
+  reorderQuantity?: number | null;
+  active?: boolean;
 }
 
 // A supplier company from the supplier master (active, approved for spare parts).
@@ -240,10 +251,13 @@ export default function PartsInventoryPage() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const portalTarget = usePortalTarget();
   const [partSearch, setPartSearch] = useState("");
+  const [showDiscontinued, setShowDiscontinued] = useState(false);
+  // Bumped after every save so the overview (value, low stock, ledger) reloads.
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [historyPart, setHistoryPart] = useState<InventoryPart | null>(null);
+  const [adjustPart, setAdjustPart] = useState<InventoryPart | null>(null);
 
-  // Skip admin dead code for now — user?.role === "ADMIN" can never match
-  // AppRole and is pre-existing, unrelated to this pass.
-  const isManager = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || user?.role === "INVENTORY_MANAGER";
+  const isManager = user?.role === "SUPER_ADMIN" || user?.role === "INVENTORY_MANAGER";
 
   const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<PartFormInput, any, PartFormOutput>({
     resolver: zodResolver(partSchema),
@@ -284,6 +298,7 @@ export default function PartsInventoryPage() {
     setSupplierList(suppliersData);
     setFetchErrors(errors);
     setLastUpdated(new Date());
+    setRefreshKey((k) => k + 1);
     setLoading(false);
     setRefreshing(false);
 
@@ -333,6 +348,8 @@ export default function PartsInventoryPage() {
     setValue("unitPrice", part.unitPrice);
     setValue("currentStock", part.currentStock);
     setValue("minimumStockLevel", part.minimumStockLevel);
+    setValue("reorderQuantity", part.reorderQuantity ?? 0);
+    setValue("isEdit", true);
     // Clear any leftover values in the (now-hidden) initial-purchase fields
     // so they can't resurface unexpectedly if the user cancels this edit and
     // goes back to adding a new part.
@@ -354,13 +371,35 @@ export default function PartsInventoryPage() {
     }
   }, [fetchAll, pushToast]);
 
+  const toggleActive = async (part: SparePart) => {
+    const targetId = part.partID || part.partId || part.id;
+    if (!targetId) return;
+    const discontinue = part.active !== false;
+    try {
+      await api.put(`/api/parts/${targetId}/active`, null, { params: { value: !discontinue } });
+      pushToast("success", discontinue ? `${part.name} discontinued — it can no longer be reordered.` : `${part.name} is active again.`);
+      fetchAll();
+    } catch (err) {
+      pushToast("error", extractErrorMessage(err, "Couldn't update the part."));
+    }
+  };
+
+  // "Reorder" from the low-stock list: open the purchase-order dialog pre-filled.
+  const openReorder = (part: InventoryPart, quantity: number) => {
+    const full = parts.find((p) => (p.partID || p.partId || p.id) === part.partID) || (part as unknown as SparePart);
+    setSupplyModal({ isOpen: true, part: full });
+    setSupplyData({ quantity, supplierId: "", agreedUnitPrice: full.costPrice || full.unitPrice });
+  };
+
+  const asInventoryPart = (p: SparePart): InventoryPart => ({ ...p, partID: (p.partID || p.partId || p.id)! });
+
   const handleDeleteClick = (part: SparePart) => {
     const targetId = part.partID || part.partId || part.id;
     if (!targetId) return;
     setConfirmState({
       isOpen: true,
       title: "Delete this component?",
-      message: `Permanently remove "${part.name}" (${part.partCode}) from inventory. This cannot be undone.`,
+      message: `Permanently remove "${part.name}" (${part.partCode}). Parts with stock history (jobs, sales, orders) can't be deleted — discontinue them instead.`,
       confirmLabel: "Delete component",
       pending: false,
       onConfirm: () => executeDelete(targetId),
@@ -412,9 +451,10 @@ export default function PartsInventoryPage() {
 
   const filteredParts = useMemo(() => {
     const q = partSearch.trim().toLowerCase();
-    if (!q) return parts;
-    return parts.filter((p) => p.name.toLowerCase().includes(q) || p.partCode.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
-  }, [parts, partSearch]);
+    const visible = showDiscontinued ? parts : parts.filter((p) => p.active !== false);
+    if (!q) return visible;
+    return visible.filter((p) => p.name.toLowerCase().includes(q) || p.partCode.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
+  }, [parts, partSearch, showDiscontinued]);
   const partsPagination = usePagination(filteredParts, 8);
 
   if (loading) {
@@ -458,6 +498,10 @@ export default function PartsInventoryPage() {
           </div>
         </div>
 
+        {isManager && (
+          <InventoryOverview refreshKey={refreshKey} onReorder={openReorder} onShowHistory={setHistoryPart} />
+        )}
+
         <div className={`grid grid-cols-1 ${isManager ? "lg:grid-cols-3" : "lg:grid-cols-1"} gap-8`}>
           {isManager && (
             <div className="lg:col-span-1">
@@ -490,8 +534,10 @@ export default function PartsInventoryPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label htmlFor="currentStock" className="block text-sm font-bold text-slate-700 mb-1.5">Stock</label>
-                      <input id="currentStock" {...register("currentStock")} type="number" className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 outline-none ${errors.currentStock ? "border-red-400" : "border-slate-200"}`} />
+                      <label htmlFor="currentStock" className="block text-sm font-bold text-slate-700 mb-1.5">{editingPartId ? "Stock (locked)" : "Opening Stock"}</label>
+                      <input id="currentStock" {...register("currentStock")} type="number" readOnly={!!editingPartId}
+                        className={`w-full px-4 py-2.5 rounded-xl border outline-none ${editingPartId ? "bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200" : `bg-slate-50 ${errors.currentStock ? "border-red-400" : "border-slate-200"}`}`} />
+                      {editingPartId && <p className="mt-1 text-[11px] font-bold text-slate-500">Use “Adjust stock” in the list so the change is recorded.</p>}
                       {errors.currentStock && <p className="mt-1 text-xs font-bold text-red-500">{errors.currentStock.message}</p>}
                     </div>
                     <div>
@@ -504,6 +550,13 @@ export default function PartsInventoryPage() {
                     <label htmlFor="minimumStockLevel" className="block text-sm font-bold text-slate-700 mb-1.5">Safety Alert Level</label>
                     <input id="minimumStockLevel" {...register("minimumStockLevel")} type="number" className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 outline-none ${errors.minimumStockLevel ? "border-red-400" : "border-slate-200"}`} />
                     {errors.minimumStockLevel && <p className="mt-1 text-xs font-bold text-red-500">{errors.minimumStockLevel.message}</p>}
+                  </div>
+                  <div>
+                    <label htmlFor="reorderQuantity" className="block text-sm font-bold text-slate-700 mb-1.5">Reorder Quantity <span className="font-medium text-slate-400">(optional)</span></label>
+                    <input id="reorderQuantity" {...register("reorderQuantity")} type="number" min={0} placeholder="0 = automatic"
+                      className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 outline-none ${errors.reorderQuantity ? "border-red-400" : "border-slate-200"}`} />
+                    <p className="mt-1 text-[11px] text-slate-400 font-medium">Suggested order size when stock runs low. Automatic tops up to twice the alert level.</p>
+                    {errors.reorderQuantity && <p className="mt-1 text-xs font-bold text-red-500">{errors.reorderQuantity.message}</p>}
                   </div>
 
                   {!editingPartId && (
@@ -547,6 +600,12 @@ export default function PartsInventoryPage() {
               <div className="px-8 py-6 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <h3 className="text-xl font-bold text-slate-800">{isManager ? "Master Inventory Ledger" : "Authorized Component Catalog"}</h3>
                 <div className="flex items-center gap-2">
+                  {isManager && (
+                    <label className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 cursor-pointer whitespace-nowrap">
+                      <input type="checkbox" checked={showDiscontinued} onChange={(e) => setShowDiscontinued(e.target.checked)} className="w-4 h-4" />
+                      Discontinued
+                    </label>
+                  )}
                   <SearchInput value={partSearch} onChange={setPartSearch} placeholder="Search name, code, category..." ariaLabel="Search inventory" className="w-64" />
                   {isManager && (
                     <button onClick={() => exportPartsCSV(filteredParts)} disabled={filteredParts.length === 0}
@@ -583,7 +642,11 @@ export default function PartsInventoryPage() {
                             <>
                               <td className="px-6 py-5 text-right"><span className={`font-black text-lg ${isLowStock ? "text-red-600" : "text-slate-900"}`}>{p.currentStock || 0}</span></td>
                               <td className="px-6 py-5 text-center">
-                                {isLowStock
+                                {p.active === false
+                                  ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-black bg-slate-100 text-slate-500 border border-slate-200">DISCONTINUED</span>
+                                  : p.currentStock === 0
+                                  ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-black bg-red-50 text-red-700 border border-red-200"><span className="w-1.5 h-1.5 rounded-full bg-red-600" />OUT OF STOCK</span>
+                                  : isLowStock
                                   ? <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-black bg-red-50 text-red-600 border border-red-100"><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />CRITICAL</span>
                                   : <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[10px] font-black bg-emerald-50 text-emerald-600 border border-emerald-100"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />OPTIMAL</span>}
                               </td>
@@ -600,8 +663,18 @@ export default function PartsInventoryPage() {
                                   <button onClick={() => setRmaModal({ isOpen: true, part: p })} className="p-2 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors" title="Log Defective Part (RMA)" aria-label={`Log RMA for ${p.name}`}>
                                     <IconAlertTriangle />
                                   </button>
+                                  <button onClick={() => setAdjustPart(asInventoryPart(p))} className="px-2 py-1.5 text-[11px] font-black text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors" title="Adjust stock (physical count)" aria-label={`Adjust stock for ${p.name}`}>
+                                    ±
+                                  </button>
+                                  <button onClick={() => setHistoryPart(asInventoryPart(p))} className="p-2 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors" title="Stock history" aria-label={`Stock history for ${p.name}`}>
+                                    <IconInfo />
+                                  </button>
                                   <button onClick={() => handleEdit(p)} className="p-2 text-slate-400 hover:text-yellow-600 hover:bg-yellow-50 rounded-lg transition-colors" title="Edit" aria-label={`Edit ${p.name}`}>
                                     <IconEdit />
+                                  </button>
+                                  <button onClick={() => toggleActive(p)} className="px-2 py-1.5 text-[10px] font-black uppercase tracking-wider text-slate-500 hover:text-orange-700 hover:bg-orange-50 rounded-lg transition-colors"
+                                    title={p.active === false ? "Reactivate part" : "Discontinue part (keeps history, stops reordering)"}>
+                                    {p.active === false ? "Restore" : "Retire"}
                                   </button>
                                   <button onClick={() => handleDeleteClick(p)} className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Delete" aria-label={`Delete ${p.name}`}>
                                     <IconTrash />
@@ -629,6 +702,12 @@ export default function PartsInventoryPage() {
 
       {portalTarget && createPortal(
         <>
+          {historyPart && <StockHistoryDrawer part={historyPart} onClose={() => setHistoryPart(null)} />}
+          {adjustPart && (
+            <AdjustStockDialog part={adjustPart} onClose={() => setAdjustPart(null)}
+              onSaved={(msg) => { setAdjustPart(null); pushToast("success", msg); fetchAll(); }} />
+          )}
+
           {/* TOASTS */}
           <div className="fixed bottom-6 right-6 z-[100] flex flex-col gap-2 w-80 max-w-[90vw]" role="status" aria-live="polite">
             {toasts.map((t) => (
