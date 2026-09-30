@@ -45,6 +45,9 @@ export default function StaffBookingsPage() {
   const [newVehicleReg, setNewVehicleReg] = useState("");
   const [newPackage, setNewPackage] = useState("Full Engine Diagnostic & Tuning");
   const [newBay, setNewBay] = useState("Bay 1 - Hydraulic Lift");
+  // Service bays come from the backend (autocare.roster.bays) so the job card
+  // and the staff roster always offer the same list.
+  const [bays, setBays] = useState<string[]>(["Bay 1 - Hydraulic Lift"]);
   const [newManagerNotes, setNewManagerNotes] = useState("");
 
   const [jobCardModal, setJobCardModal] = useState<{ isOpen: boolean; bookingID: number | null }>({ isOpen: false, bookingID: null });
@@ -73,6 +76,14 @@ export default function StaffBookingsPage() {
   useEffect(() => {
     setIsMounted(true);
     fetchData();
+    axios.get("http://localhost:8080/api/roster/resources", getAuthHeader())
+      .then(res => {
+        if (Array.isArray(res.data?.bays) && res.data.bays.length) {
+          setBays(res.data.bays);
+          setNewBay(res.data.bays[0]);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleCreateBooking = async (e: React.FormEvent) => {
@@ -412,10 +423,7 @@ export default function StaffBookingsPage() {
                   value={newBay} onChange={(e) => setNewBay(e.target.value)}
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-slate-800 text-sm font-bold text-slate-800 cursor-pointer"
                 >
-                  <option value="Bay 1 - Hydraulic Lift">Bay 1 - Hydraulic Lift</option>
-                  <option value="Bay 2 - Alignment & Suspension">Bay 2 - Alignment & Suspension</option>
-                  <option value="Bay 3 - Electrical Diagnostics">Bay 3 - Electrical Diagnostics</option>
-                  <option value="Bay 4 - Quick Express Lube">Bay 4 - Quick Express Lube</option>
+                  {bays.map(bay => <option key={bay} value={bay}>{bay}</option>)}
                 </select>
               </div>
               <div>

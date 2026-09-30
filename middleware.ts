@@ -29,7 +29,8 @@ const rolePermissions: Record<string, string[]> = {
   // Customer portal only: staff log tickets for a customer from the CRM desk.
   '/support':    ['CUSTOMER'],
   '/complaints': ['CUSTOMER_RELATIONS_OFFICER', 'ACCOUNTS_FINANCE_OFFICER', 'SERVICE_CENTER_MANAGER', 'FUEL_STATION_SUPERVISOR'],
-  '/roster':     ['TECHNICIAN', 'FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER', 'INVENTORY_MANAGER', 'CUSTOMER_RELATIONS_OFFICER', 'SERVICE_CENTER_MANAGER'],
+  // Every rostered role (fuel attendants were missing — they work shifts too).
+  '/roster':     ['TECHNICIAN', 'FUEL_ATTENDANT', 'FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER', 'INVENTORY_MANAGER', 'CUSTOMER_RELATIONS_OFFICER', 'SERVICE_CENTER_MANAGER'],
   '/users':      [],
   '/pos':        ['INVENTORY_MANAGER'],
   '/audit':      []

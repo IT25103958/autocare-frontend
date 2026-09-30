@@ -87,8 +87,14 @@ interface UserAccount {
   role: string;
 }
 
-interface RosterShift {
-  shiftDate?: string;
+// Monthly attendance from GET /api/roster/hours.
+interface AttendanceSummary {
+  workedHours: number;
+  completedShifts: number;
+  absentShifts: number;
+  lateShifts: number;
+  autoClosedShifts: number;
+  openShifts: number;
 }
 
 interface FetchErrors {
@@ -244,6 +250,7 @@ export default function SalaryDashboard() {
   const [isSendingEmail, setIsSendingEmail] = useState<number | null>(null);
   const [suggestedRate, setSuggestedRate] = useState<number | null>(null);
   const [rosterSyncWarning, setRosterSyncWarning] = useState(false);
+  const [attendance, setAttendance] = useState<AttendanceSummary | null>(null);
 
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [confirmState, setConfirmState] = useState<ConfirmState>(CLOSED_CONFIRM);
@@ -347,15 +354,16 @@ export default function SalaryDashboard() {
         setValue("hourlyRate", rate);
       }
 
+      setAttendance(null);
       if (selectedMonth && employee) {
         try {
-          const shiftRes = await api.get<RosterShift[]>(`/api/roster/staff/${employee.username}`);
-          // NOTE: this assumes every logged shift is a flat 8 hours. If your
-          // roster ever has half-days or overtime shifts, this will silently
-          // over/under-count — treat the auto-filled figure as a starting
-          // point to verify, not a final number.
-          const validShifts = shiftRes.data.filter((sft) => sft.shiftDate && sft.shiftDate.startsWith(selectedMonth));
-          setValue("hoursWorked", validShifts.length * 8);
+          // Actual hours from roster clock-in/out (completed shifts only), so
+          // absences and short shifts are no longer paid as a flat 8 hours.
+          const res = await api.get<AttendanceSummary>("/api/roster/hours", {
+            params: { username: employee.username, month: selectedMonth },
+          });
+          setAttendance(res.data);
+          setValue("hoursWorked", res.data.workedHours);
         } catch {
           setRosterSyncWarning(true);
           pushToast("error", `Couldn't auto-sync ${employee.username}'s hours from the roster — enter hours manually and double-check before processing.`);
@@ -524,7 +532,14 @@ export default function SalaryDashboard() {
                 <div>
                   <label htmlFor="month" className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5">Payroll Month</label>
                   <input id="month" {...register("month")} type="month" className={`w-full px-4 py-3 rounded-xl border bg-slate-50 focus:bg-white focus:ring-4 outline-none transition-all font-bold ${errors.month ? "border-red-500 focus:ring-red-500/10" : "border-slate-200 focus:border-blue-500 focus:ring-blue-500/10"}`} />
-                  <p className="text-[10px] font-bold text-blue-500 mt-1.5">Select month to auto-sync hours from Roster (assumes 8h/shift — verify before processing).</p>
+                  <p className="text-[10px] font-bold text-blue-500 mt-1.5">Select month to auto-fill hours from roster attendance (clock-in/out of completed shifts).</p>
+                  {attendance && (
+                    <p className="text-[10px] font-bold text-slate-600 mt-1">
+                      {attendance.completedShifts} completed · {attendance.absentShifts} absent · {attendance.lateShifts} late
+                      {attendance.autoClosedShifts > 0 && <span className="text-orange-700"> · {attendance.autoClosedShifts} auto clock-out (verify)</span>}
+                      {attendance.openShifts > 0 && <span className="text-orange-700"> · {attendance.openShifts} shifts not finished yet</span>}
+                    </p>
+                  )}
                   {rosterSyncWarning && (
                     <p className="text-[10px] font-bold text-red-500 mt-1 flex items-center gap-1"><IconAlertTriangle c="w-3 h-3" /> Auto-sync failed — hours below need manual review.</p>
                   )}

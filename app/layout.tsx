@@ -65,6 +65,7 @@ function NavigationBar() {
           { name: "Deliveries", href: "/deliveries" },
           { name: "Parts Suppliers", href: "/suppliers" },
           { name: "Returns (RMA)", href: "/rma" },
+          { name: "My Shifts", href: "/roster" },
           { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
@@ -77,13 +78,14 @@ function NavigationBar() {
           { name: "Fuel Deliveries", href: "/fuel-deliveries" },
           { name: "Refunds (RMA)", href: "/rma" },
           { name: "Support Tickets", href: "/complaints" },
+          { name: "Roster", href: "/roster" },
           { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
       case "SERVICE_CENTER_MANAGER":
         links.push(
           { name: "Job Cards", href: "/bookings" },
-          { name: "Staff Roster", href: "/roster" },
+          { name: "Technician Roster", href: "/roster" },
           { name: "Support Tickets", href: "/complaints" },
           { name: "My Payslips", href: "/salary/my-payslips" }
         );
@@ -91,6 +93,7 @@ function NavigationBar() {
       case "TECHNICIAN":
         links.push(
           { name: "Job Cards", href: "/bookings" },
+          { name: "My Shifts", href: "/roster" },
           { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
@@ -100,6 +103,7 @@ function NavigationBar() {
           { name: "Fuel Deliveries", href: "/fuel-deliveries" },
           { name: "Fuel Suppliers", href: "/suppliers" },
           { name: "Pump Sales", href: "/fuel" },
+          { name: "Forecourt Roster", href: "/roster" },
           { name: "Support Tickets", href: "/complaints" },
           { name: "My Payslips", href: "/salary/my-payslips" }
         );
@@ -107,6 +111,7 @@ function NavigationBar() {
       case "FUEL_ATTENDANT": // FIXED: Added routing for attendants
         links.push(
           { name: "Pump Sales", href: "/fuel" },
+          { name: "My Shifts", href: "/roster" },
           { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
@@ -115,6 +120,7 @@ function NavigationBar() {
           { name: "Support Tickets", href: "/complaints" },
           { name: "Customers", href: "/customers" },
           { name: "Membership", href: "/membership" },
+          { name: "My Shifts", href: "/roster" },
           { name: "My Payslips", href: "/salary/my-payslips" }
         );
         break;
@@ -128,6 +134,7 @@ function NavigationBar() {
           { name: "Payroll", href: "/salary" },
           { name: "RMA Ledger", href: "/rma" },
           { name: "Support Tickets", href: "/complaints" },
+          { name: "Staff Roster", href: "/roster" },
           { name: "Users", href: "/users" },
           { name: "Security Logs", href: "/audit" },
           { name: "My Payslips", href: "/salary/my-payslips" }
