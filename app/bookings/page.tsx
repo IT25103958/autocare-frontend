@@ -15,17 +15,25 @@ import {
 
 const MANAGERS = ["SERVICE_CENTER_MANAGER", "SUPER_ADMIN", "SYSTEM_ADMIN"];
 
-type Tab = "requests" | "workshop" | "all" | "packages" | "mine" | "history" | "board";
+type Tab = "requests" | "workshop" | "completed" | "all" | "packages" | "mine" | "history" | "board";
+
+// The bill raised for a finished job (from the invoices list), keyed by job id.
+interface JobBill { invoiceNumber: string; status: string; balanceDue: number; paidVia: string | null }
+
+// Finished work that still needs something: payment, or handing the vehicle back.
+const needsClosing = (b: Booking) => b.status === "COMPLETED" || (b.status === "PAID" && !b.handedOverAt);
 
 export default function WorkshopPage() {
   const { user } = useAuth();
   const role = user?.role || "";
   const isManager = MANAGERS.includes(role);
   const isTechnician = role === "TECHNICIAN";
+  const canHandOver = isManager || role === "CUSTOMER_RELATIONS_OFFICER";
 
   const [tab, setTab] = useState<Tab | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [myJobs, setMyJobs] = useState<Booking[]>([]);
+  const [bills, setBills] = useState<Record<number, JobBill>>({});
   const [notice, setNotice] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
@@ -40,6 +48,10 @@ export default function WorkshopPage() {
   const load = () => {
     api.get<Booking[]>("/bookings").then(res => setBookings(res.data)).catch(() => setBookings([]));
     if (isTechnician) api.get<Booking[]>("/bookings/my-jobs").then(res => setMyJobs(res.data)).catch(() => setMyJobs([]));
+    // Payment state of finished jobs (technicians don't have access to billing).
+    else api.get<(JobBill & { sourceType: string; sourceId: number })[]>("/invoices")
+      .then(res => setBills(Object.fromEntries(res.data.filter(i => i.sourceType === "SERVICE_JOB").map(i => [i.sourceId, i]))))
+      .catch(() => setBills({}));
   };
 
   useEffect(() => {
@@ -116,6 +128,8 @@ export default function WorkshopPage() {
           <button key="c" onClick={() => cancel(b)} className={`${btn} text-red-700 hover:bg-red-50`}>Cancel</button>);
         break;
       case "IN_PROGRESS":
+        if (isManager && !b.assignedBy) out.push(
+          <button key="al" onClick={() => setAssigning(b)} className={`${btn} text-white bg-amber-600 hover:bg-amber-700`}>Allocate technician</button>);
         if (canWork) out.push(
           <button key="f" onClick={() => setCompleting(b)} className={`${btn} text-white bg-blue-600 hover:bg-blue-700`}>Complete</button>,
           <button key="d" onClick={() => delay(b)} className={`${btn} text-orange-800 hover:bg-orange-50`}>Delay</button>);
@@ -126,6 +140,10 @@ export default function WorkshopPage() {
           <button key="re" onClick={() => act(b, "resume", `${jobRef(b.bookingID)} resumed.`)} className={`${btn} text-white bg-slate-900 hover:bg-blue-600`}>Resume</button>,
           <button key="f" onClick={() => setCompleting(b)} className={`${btn} text-blue-700 hover:bg-blue-50`}>Complete</button>);
         if (isManager) out.push(<button key="c" onClick={() => cancel(b)} className={`${btn} text-red-700 hover:bg-red-50`}>Abort</button>);
+        break;
+      case "PAID":
+        if (canHandOver && !b.handedOverAt) out.push(
+          <button key="h" onClick={() => act(b, "handover", `${jobRef(b.bookingID)} handed over to the customer.`)} className={`${btn} text-white bg-emerald-600 hover:bg-emerald-700`}>Hand over vehicle</button>);
         break;
       case "CANCELLED":
         if (isManager) out.push(
@@ -139,6 +157,7 @@ export default function WorkshopPage() {
   const tabs: { key: Tab; label: string; count?: number }[] = isManager ? [
     { key: "requests", label: "Requests", count: bookings.filter(b => b.status === "PENDING").length },
     { key: "workshop", label: "Workshop", count: bookings.filter(b => ["CONFIRMED", "IN_PROGRESS", "DELAYED"].includes(b.status)).length },
+    { key: "completed", label: "Completed", count: bookings.filter(needsClosing).length },
     { key: "all", label: "All Jobs" },
     { key: "packages", label: "Packages" },
   ] : isTechnician ? [
@@ -152,6 +171,7 @@ export default function WorkshopPage() {
     switch (tab) {
       case "requests": list = bookings.filter(b => b.status === "PENDING"); break;
       case "workshop": list = bookings.filter(b => ["CONFIRMED", "IN_PROGRESS", "DELAYED"].includes(b.status)); break;
+      case "completed": list = bookings.filter(needsClosing); break;
       case "mine": list = myJobs.filter(b => ACTIVE_STATUSES.includes(b.status)); break;
       case "history": list = myJobs.filter(b => !ACTIVE_STATUSES.includes(b.status)); break;
       case "board": list = bookings.filter(b => ["CONFIRMED", "IN_PROGRESS", "DELAYED"].includes(b.status)); break;
@@ -175,7 +195,7 @@ export default function WorkshopPage() {
           <div>
             <h1 className="text-3xl font-black text-slate-900 tracking-tight">Workshop Job Cards</h1>
             <p className="text-sm font-semibold text-slate-500 mt-1">
-              {isManager ? "Confirm bookings, assign rostered technicians and bays, and follow every job to completion."
+              {isManager ? "Confirm bookings, allocate rostered technicians and bays, then follow each job through completion, payment and hand-over."
                 : isTechnician ? "Your assigned jobs: start, update the customer, and complete with parts and a report."
                 : "Read-only view of workshop jobs."}
             </p>
@@ -248,7 +268,21 @@ export default function WorkshopPage() {
                         <td className="px-5 py-4">
                           <BookingStatusBadge status={b.status} />
                           {b.status === "DELAYED" && b.delayReason && <p className="text-xs text-orange-800 mt-1 max-w-[200px]">{b.delayReason}</p>}
-                          {(b.status === "COMPLETED" || b.status === "PAID") && <p className="text-xs font-bold text-emerald-700 mt-1 tabular-nums">{rupees(b.netTotal)}</p>}
+                          {(b.status === "IN_PROGRESS" || b.status === "DELAYED") && !b.assignedBy && <p className="text-xs font-bold text-amber-700 mt-1">Not allocated by the manager</p>}
+                          {b.status === "COMPLETED" && (
+                            <p className="text-xs font-bold text-amber-700 mt-1 tabular-nums">
+                              Awaiting payment · {rupees(bills[b.bookingID]?.balanceDue ?? b.netTotal)}
+                              {bills[b.bookingID] && <span className="block font-mono font-medium text-slate-500">{bills[b.bookingID].invoiceNumber}</span>}
+                            </p>
+                          )}
+                          {b.status === "PAID" && (
+                            <p className="text-xs font-bold text-emerald-700 mt-1 tabular-nums">
+                              {rupees(b.netTotal)}{bills[b.bookingID]?.paidVia ? ` · ${bills[b.bookingID].paidVia}` : ""}
+                              <span className={`block font-medium ${b.handedOverAt ? "text-slate-500" : "text-blue-700 font-bold"}`}>
+                                {b.handedOverAt ? `Handed over ${fmtWhen(b.handedOverAt)}` : "Paid — vehicle waiting to be handed over"}
+                              </span>
+                            </p>
+                          )}
                         </td>
                         <td className="px-5 py-4">
                           <div className="flex flex-wrap justify-end gap-1.5">
@@ -262,7 +296,8 @@ export default function WorkshopPage() {
                     ))}
                     {rows.length === 0 && (
                       <tr><td colSpan={6} className="p-12 text-center text-slate-500 font-bold">
-                        {tab === "requests" ? "No bookings waiting for confirmation." : tab === "mine" ? "No jobs assigned to you right now." : "No jobs found."}
+                        {tab === "requests" ? "No bookings waiting for confirmation." : tab === "mine" ? "No jobs assigned to you right now."
+                          : tab === "completed" ? "No finished jobs waiting for payment or hand-over." : "No jobs found."}
                       </td></tr>
                     )}
                   </tbody>

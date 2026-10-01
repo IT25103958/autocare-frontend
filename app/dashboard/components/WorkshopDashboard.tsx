@@ -11,6 +11,8 @@ interface ServiceBooking {
   servicePackage: string;
   status: string;
   technicianNotes?: string;
+  completedAt?: string | null;
+  handedOverAt?: string | null;
 }
 
 export default function WorkshopDashboard() {
@@ -53,7 +55,7 @@ export default function WorkshopDashboard() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
           <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Active Service Bays</h3>
           <div className="text-4xl font-black text-blue-600 mb-2">{activeBays} <span className="text-lg text-slate-400">Occupied</span></div>
@@ -67,9 +69,15 @@ export default function WorkshopDashboard() {
         </div>
 
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Daily Completion</h3>
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Done — Awaiting Payment</h3>
           <div className="text-4xl font-black text-emerald-500 mb-2">{bookings.filter(b => b.status === "COMPLETED").length} <span className="text-lg text-slate-400">Jobs</span></div>
-          <p className="text-xs font-bold text-emerald-700 bg-emerald-50 inline-block px-2 py-1 rounded-md">Ready for Finance Settle</p>
+          <p className="text-xs font-bold text-emerald-700 bg-emerald-50 inline-block px-2 py-1 rounded-md">Work finished, bill unpaid</p>
+        </div>
+
+        <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+          <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Paid — To Hand Over</h3>
+          <div className="text-4xl font-black text-slate-900 mb-2">{bookings.filter(b => b.status === "PAID" && !b.handedOverAt).length} <span className="text-lg text-slate-400">Vehicles</span></div>
+          <p className="text-xs font-bold text-slate-700 bg-slate-100 inline-block px-2 py-1 rounded-md">Release from the Completed tab</p>
         </div>
       </div>
 
@@ -86,7 +94,9 @@ export default function WorkshopDashboard() {
               <div key={job.bookingID} className="bg-slate-800 p-4 rounded-xl border border-slate-700">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm font-black text-white">{job.vehicleRegNo} • {job.servicePackage}</span>
-                  <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-400 px-2 py-1 rounded-md">COMPLETED</span>
+                  <span className={`text-[10px] font-bold px-2 py-1 rounded-md ${job.status === "PAID" ? "bg-emerald-500/20 text-emerald-400" : "bg-amber-500/20 text-amber-300"}`}>
+                    {job.status === "PAID" ? (job.handedOverAt ? "PAID · HANDED OVER" : "PAID") : "AWAITING PAYMENT"}
+                  </span>
                 </div>
                 <p className="text-xs font-medium text-slate-400 border-l-2 border-slate-600 pl-3 py-1">
                   {job.technicianNotes || "No diagnostic notes provided by technician."}

@@ -332,15 +332,15 @@ export default function PointOfSale() {
                 </div>
               )}
               {paymentMethod !== "CASH" && (
-                <input value={paymentRef} onChange={e => setPaymentRef(e.target.value)} maxLength={paymentMethod === "CARD" ? 4 : 60}
-                  placeholder={paymentMethod === "CARD" ? "Card last 4 (optional)" : "Transfer reference"} aria-label="Payment reference"
+                <input value={paymentRef} onChange={e => setPaymentRef(e.target.value)} maxLength={paymentMethod === "CARD" ? 20 : 60}
+                  placeholder={paymentMethod === "CARD" ? "Terminal slip / approval no." : "Transfer reference"} aria-label="Payment reference"
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg outline-none placeholder-slate-500 text-sm font-bold focus:border-blue-500" />
               )}
             </div>
 
             <button
               onClick={handleCheckout}
-              disabled={cart.length === 0 || isProcessing || (paymentMethod === "CASH" && !!tendered && Number(tendered) < netTotal) || (paymentMethod === "BANK_TRANSFER" && paymentRef.trim().length < 4)}
+              disabled={cart.length === 0 || isProcessing || (paymentMethod === "CASH" && (!tendered || Number(tendered) < netTotal)) || (paymentMethod !== "CASH" && paymentRef.trim().length < 4)}
               className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-sm font-black uppercase tracking-wider rounded-xl transition-all shadow-[0_0_20px_rgba(37,99,235,0.2)] disabled:shadow-none"
             >
               {isProcessing ? "Processing..." : "Checkout"}

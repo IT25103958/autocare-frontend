@@ -66,9 +66,11 @@ export default function CollectPaymentDialog({ invoice, onClose, onPaid }: {
     }
   };
 
+  // Every counter payment carries its proof: the cash handed over, the card
+  // terminal's slip number, or the bank transfer reference.
   const invalid = saving || (amt <= 0 && pts <= 0) || amt > afterPoints + 0.001
-    || (method === "CASH" && !!tendered && Number(tendered) < amt)
-    || (method === "BANK_TRANSFER" && amt > 0 && reference.trim().length < 4)
+    || (method === "CASH" && amt > 0 && (!tendered || Number(tendered) < amt))
+    || (method !== "CASH" && amt > 0 && reference.trim().length < 4)
     || pts > maxPoints;
 
   return (
@@ -124,14 +126,14 @@ export default function CollectPaymentDialog({ invoice, onClose, onPaid }: {
           </div>
           {method === "CASH" && (
             <div>
-              <label htmlFor="cp-tendered" className="block text-xs font-bold text-slate-700 mb-1">Cash tendered</label>
-              <input id="cp-tendered" type="number" min={0} step="0.01" value={tendered} onChange={e => setTendered(e.target.value)} placeholder={String(amt)} className={`${inputClass} tabular-nums`} />
+              <label htmlFor="cp-tendered" className="block text-xs font-bold text-slate-700 mb-1">Cash handed over</label>
+              <input id="cp-tendered" type="number" min={0} step="0.01" value={tendered} onChange={e => setTendered(e.target.value)} placeholder="Required" className={`${inputClass} tabular-nums`} />
             </div>
           )}
           {method === "CARD" && (
             <div>
-              <label htmlFor="cp-ref" className="block text-xs font-bold text-slate-700 mb-1">Card last 4 <span className="font-medium text-slate-500">(optional)</span></label>
-              <input id="cp-ref" value={reference} maxLength={4} onChange={e => setReference(e.target.value.replace(/\D/g, ""))} className={`${inputClass} tabular-nums`} />
+              <label htmlFor="cp-ref" className="block text-xs font-bold text-slate-700 mb-1">Terminal slip / approval no.</label>
+              <input id="cp-ref" value={reference} maxLength={20} onChange={e => setReference(e.target.value)} placeholder="From the card slip" className={`${inputClass} tabular-nums`} />
             </div>
           )}
           {method === "BANK_TRANSFER" && (
@@ -145,6 +147,7 @@ export default function CollectPaymentDialog({ invoice, onClose, onPaid }: {
         {method === "CASH" && !!tendered && Number(tendered) < amt && <p className="text-sm font-bold text-red-600">Cash tendered is less than the amount.</p>}
         {amt > 0 && amt < afterPoints && <p className="text-xs text-amber-800">Partial payment — {lkr(afterPoints - amt)} will remain due.</p>}
 
+        {invoice.customerEmail && <p className="text-xs text-slate-500">The customer is emailed a confirmation of this payment at {invoice.customerEmail}.</p>}
         {error && <p className="text-sm font-bold text-red-600">{error}</p>}
 
         <div className="flex justify-end gap-3">

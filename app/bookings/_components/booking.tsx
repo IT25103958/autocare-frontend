@@ -16,6 +16,9 @@ export interface Booking {
   assignedTechnicianUsername: string | null;
   technicianName: string | null;
   assignedServiceBay: string | null;
+  // The manager who allocated the technician and bay; null means not allocated yet.
+  assignedBy: string | null;
+  assignedAt: string | null;
   customerNotes: string | null;
   managerNotes: string | null;
   technicianNotes: string | null;
@@ -24,6 +27,9 @@ export interface Booking {
   cancelledBy: string | null;
   startedAt: string | null;
   completedAt: string | null;
+  // Vehicle released to the customer (only possible once the bill is paid).
+  handedOverAt: string | null;
+  handedOverBy: string | null;
   laborCharge: number | null;
   subTotal: number | null;
   discountAmount: number | null;
@@ -97,6 +103,8 @@ export const EVENT_LABEL: Record<string, string> = {
   RESUMED: "Work resumed",
   COMPLETED: "Work completed",
   PAID: "Payment received",
+  HANDED_OVER: "Vehicle handed over",
+  PAYMENT_REOPENED: "Bill re-opened",
   CANCELLED: "Cancelled",
   REQUEUED: "Re-opened",
 };

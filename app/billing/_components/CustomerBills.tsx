@@ -49,7 +49,7 @@ export default function CustomerBills({ refreshKey = 0, onPaid }: { refreshKey?:
                 <InvoiceStatusBadge status={inv.status} />
               </div>
               <p className="font-bold text-slate-900 mt-1">{inv.description}</p>
-              <p className="text-xs text-slate-500">{inv.status === "PAID" ? `Paid ${fmtWhen(inv.paidAt)}` : `Issued ${fmtWhen(inv.issuedAt)}`}</p>
+              <p className="text-xs text-slate-500">{inv.status === "PAID" ? `Paid ${fmtWhen(inv.paidAt)}` : `Issued ${fmtWhen(inv.issuedAt)}`}{inv.paidVia ? ` · ${inv.paidVia}` : ""}</p>
             </div>
             <div className="text-right">
               <p className="text-lg font-black tabular-nums text-slate-900">{lkr(inv.status === "PAID" ? inv.totalAmount : inv.balanceDue)}</p>

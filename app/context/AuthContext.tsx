@@ -35,6 +35,8 @@ interface AuthContextType {
   login: (userData: User) => void;
   logout: () => void;
   markPasswordChanged: () => void;
+  // Keep the stored session in step after the user edits their own details.
+  updateUser: (changes: Partial<Pick<User, "fullName">>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -70,6 +72,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  const updateUser = (changes: Partial<Pick<User, "fullName">>) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...changes };
+      localStorage.setItem("authUser", JSON.stringify(next));
+      return next;
+    });
+  };
+
   const logout = () => {
     setUser(null);
     localStorage.removeItem("authUser");
@@ -82,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, logout, markPasswordChanged }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, markPasswordChanged, updateUser }}>
       {children}
     </AuthContext.Provider>
   );

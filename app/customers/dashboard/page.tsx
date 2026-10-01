@@ -7,6 +7,8 @@ import Link from "next/link";
 import CustomerUpcoming from "../../bookings/_components/CustomerUpcoming";
 import CustomerBills from "../../billing/_components/CustomerBills";
 import CustomerFuelPurchases from "../../billing/_components/CustomerFuelPurchases";
+import PayOnlineDialog from "../../billing/_components/PayOnlineDialog";
+import { Invoice } from "../../billing/_components/billing";
 import { Booking, STATUS_LABEL, rupees } from "../../bookings/_components/booking";
 
 type ServiceBooking = Booking & { vehicleModel?: string };
@@ -26,11 +28,17 @@ export default function CustomerDashboard() {
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [profileMissing, setProfileMissing] = useState(false);
   const [cutoffHours, setCutoffHours] = useState(12);
+  // The customer's bills, so a finished job can be paid straight from its card.
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [paying, setPaying] = useState<Invoice | null>(null);
+  const [billsKey, setBillsKey] = useState(0);
 
-  const loadBookings = () =>
-    api.get("/bookings/my-bookings")
+  const loadBookings = () => {
+    api.get<Invoice[]>("/invoices/my").then(res => setInvoices(res.data)).catch(() => setInvoices([]));
+    return api.get("/bookings/my-bookings")
       .then(res => setBookings(res.data.sort((a: ServiceBooking, b: ServiceBooking) => b.bookingID - a.bookingID)))
       .catch(() => setBookings([]));
+  };
 
   useEffect(() => {
     setIsMounted(true);
@@ -48,7 +56,12 @@ export default function CustomerDashboard() {
   // --- DYNAMIC DATA COMPUTATIONS ---
 
   // 1. A vehicle in the workshop right now (being serviced, delayed or ready to collect)
-  const activeBooking = bookings.find(b => ["IN_PROGRESS", "DELAYED", "COMPLETED"].includes(b.status));
+  // A paid job stays here until the workshop hands the vehicle back.
+  const activeBooking = bookings.find(b => ["IN_PROGRESS", "DELAYED", "COMPLETED"].includes(b.status)
+    || (b.status === "PAID" && !b.handedOverAt));
+  const activeBill = activeBooking
+    ? invoices.find(i => i.sourceType === "SERVICE_JOB" && i.sourceId === activeBooking.bookingID) ?? null
+    : null;
 
   // Upcoming appointments, soonest first
   const upcoming = bookings
@@ -76,7 +89,7 @@ export default function CustomerDashboard() {
   let progressStage = 0;
   if (activeBooking) {
     if (activeBooking.status === "IN_PROGRESS" || activeBooking.status === "DELAYED") { progressWidth = "60%"; progressStage = 2; }
-    else if (activeBooking.status === "COMPLETED") { progressWidth = "100%"; progressStage = 3; }
+    else if (activeBooking.status === "COMPLETED" || activeBooking.status === "PAID") { progressWidth = "100%"; progressStage = 3; }
   }
 
   if (!isMounted) return null;
@@ -159,8 +172,25 @@ export default function CustomerDashboard() {
                     </div>
                   )}
                   {activeBooking.status === "COMPLETED" && (
-                    <div className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-900">
-                      <span className="font-bold">Ready for pickup.</span> Amount due: <span className="font-bold">{rupees(activeBooking.netTotal)}</span> — pay at the counter or online under <span className="font-bold">My Bills</span> below.
+                    <div className="mt-4 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="font-bold text-emerald-900">Work finished — your vehicle is ready.</p>
+                        <p className="text-sm text-emerald-900 mt-0.5">
+                          Total to pay: <span className="font-black tabular-nums">{rupees(activeBill ? activeBill.balanceDue : activeBooking.netTotal)}</span>
+                          {activeBill && <span className="ml-2 font-mono text-xs text-emerald-800">{activeBill.invoiceNumber}</span>}
+                        </p>
+                        <p className="text-xs text-emerald-800 mt-1">Pay online now, or at the counter when you collect the vehicle.</p>
+                      </div>
+                      {activeBill && activeBill.status !== "PAID" && (
+                        <button onClick={() => setPaying(activeBill)} className="px-6 py-3 rounded-xl font-black text-white bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-600/20">
+                          Pay now
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {activeBooking.status === "PAID" && (
+                    <div className="mt-4 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-900">
+                      <span className="font-bold">Paid — thank you.</span> Your vehicle is ready to collect from the workshop.
                     </div>
                   )}
 
@@ -190,7 +220,7 @@ export default function CustomerDashboard() {
               )}
             </div>
 
-            <CustomerBills onPaid={loadBookings} />
+            <CustomerBills refreshKey={billsKey} onPaid={loadBookings} />
 
             <CustomerFuelPurchases />
 
@@ -300,6 +330,10 @@ export default function CustomerDashboard() {
           opacity: 0;
         }
       `}} />
+      {paying && (
+        <PayOnlineDialog invoice={paying} onClose={() => setPaying(null)}
+          onPaid={() => { setPaying(null); loadBookings(); setBillsKey(k => k + 1); }} />
+      )}
     </div>
   );
 }

@@ -182,7 +182,7 @@ export default function BillingPage() {
                       <td className="px-5 py-3 text-slate-700 max-w-[240px]">{inv.description}</td>
                       <td className="px-5 py-3 text-right tabular-nums">{lkr(inv.totalAmount)}</td>
                       <td className={`px-5 py-3 text-right tabular-nums font-black ${inv.balanceDue > 0 ? "text-red-700" : "text-slate-400"}`}>{lkr(inv.balanceDue)}</td>
-                      <td className="px-5 py-3"><InvoiceStatusBadge status={inv.status} />{inv.paidAt && <p className="text-xs text-slate-500 mt-1">{fmtWhen(inv.paidAt)}</p>}</td>
+                      <td className="px-5 py-3"><InvoiceStatusBadge status={inv.status} />{inv.paidAt && <p className="text-xs text-slate-500 mt-1">{fmtWhen(inv.paidAt)}</p>}{inv.paidVia && <p className="text-xs font-bold text-slate-600 mt-0.5">{inv.paidVia}</p>}</td>
                       <td className="px-5 py-3 text-right whitespace-nowrap">
                         {canCollect && inv.status !== "PAID" && (
                           <button onClick={() => setCollecting(inv)} className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700">Collect payment</button>

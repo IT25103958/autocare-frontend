@@ -1,28 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import api from "../../../utils/axiosInstance";
-import { FREQUENCY_LABEL, Invoice, InvoiceDetail, errText, fmtDay, inputClass, lkr } from "./billing";
+import { FREQUENCY_LABEL, Invoice, InvoiceDetail, errText, fmtDay, lkr } from "./billing";
 
-const formatCard = (v: string) => v.replace(/\D/g, "").slice(0, 19).replace(/(\d{4})(?=\d)/g, "$1 ");
-const formatExpiry = (v: string) => {
-  const d = v.replace(/\D/g, "").slice(0, 4);
-  return d.length > 2 ? `${d.slice(0, 2)}/${d.slice(2)}` : d;
-};
-
-// Customer checkout through the simulated card gateway (no real money moves).
-// Card details go straight to the server for the charge and are not stored.
+// First step of paying a bill online: choose what to pay (the instalment due or
+// the whole balance) and whether to use loyalty points, then continue to the
+// payment gateway. No card or account details are entered here.
 export default function PayOnlineDialog({ invoice, onClose, onPaid }: {
   invoice: Invoice;
   onClose: () => void;
   onPaid: (message: string) => void;
 }) {
+  const router = useRouter();
   const [detail, setDetail] = useState<InvoiceDetail | null>(null);
   const [usePoints, setUsePoints] = useState(false);
   const [payFull, setPayFull] = useState(false);
-  const [card, setCard] = useState({ cardNumber: "", expiry: "", cvc: "", cardholderName: "" });
   const [error, setError] = useState("");
-  const [paying, setPaying] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     api.get<InvoiceDetail>(`/invoices/${invoice.invoiceId}`).then(res => setDetail(res.data)).catch(() => setDetail(null));
@@ -37,35 +33,34 @@ export default function PayOnlineDialog({ invoice, onClose, onPaid }: {
   const maxPoints = detail ? Math.min(detail.loyaltyPoints, Math.floor(target / pointValue)) : 0;
   const points = usePoints ? maxPoints : 0;
   const pointsWorth = Math.round(points * pointValue * 100) / 100;
-  const cardAmount = Math.max(0, Math.round((target - pointsWorth) * 100) / 100);
-  const needsCard = cardAmount > 0;
+  const toCharge = Math.max(0, Math.round((target - pointsWorth) * 100) / 100);
 
-  const pay = async (e: React.FormEvent) => {
+  const proceed = async (e: React.FormEvent) => {
     e.preventDefault();
-    setPaying(true);
+    setBusy(true);
     setError("");
     try {
-      await api.post(`/invoices/${invoice.invoiceId}/pay-online`, {
-        ...(needsCard ? card : { cardNumber: null, expiry: null, cvc: null, cardholderName: null }),
+      const res = await api.post<{ paid: boolean; token?: string }>(`/invoices/${invoice.invoiceId}/checkout`, {
+        amount: instalment ? toCharge : null,
         pointsToRedeem: points || null,
-        amount: instalment ? cardAmount : null,
       });
-      onPaid(instalment
-        ? `Payment successful — ${lkr(target)} paid towards ${invoice.invoiceNumber}. ${lkr(invoice.balanceDue - target)} is still due.`
-        : `Payment successful — ${invoice.invoiceNumber} is paid. Your receipt has been emailed to you.`);
+      if (res.data.paid) {
+        onPaid(`${invoice.invoiceNumber}: ${lkr(pointsWorth)} paid with your points.`);
+      } else {
+        router.push(`/pay/${res.data.token}`);
+      }
     } catch (err) {
-      setError(errText(err, "The payment didn't go through. Please try again."));
-    } finally {
-      setPaying(false);
+      setError(errText(err, "Couldn't start the payment. Please try again."));
+      setBusy(false);
     }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="payonline-title">
-      <form onSubmit={pay} className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden max-h-[92vh] overflow-y-auto">
+      <form onSubmit={proceed} className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden max-h-[92vh] overflow-y-auto">
         <div className="bg-slate-900 text-white p-6">
-          <p className="text-xs font-black uppercase tracking-widest text-slate-300">Secure checkout</p>
-          <h3 id="payonline-title" className="text-2xl font-black mt-1">{lkr(target)}</h3>
+          <p className="text-xs font-black uppercase tracking-widest text-slate-300">Pay online</p>
+          <h3 id="payonline-title" className="text-2xl font-black mt-1">{lkr(toCharge)}</h3>
           <p className="text-sm text-slate-300 mt-1">{invoice.invoiceNumber} · {invoice.description}</p>
         </div>
 
@@ -96,47 +91,24 @@ export default function PayOnlineDialog({ invoice, onClose, onPaid }: {
             </label>
           )}
 
-          {needsCard ? (
-            <>
-              <div>
-                <label htmlFor="po-number" className="block text-xs font-bold text-slate-700 mb-1">Card number</label>
-                <input id="po-number" inputMode="numeric" autoComplete="cc-number" value={card.cardNumber}
-                  onChange={e => setCard({ ...card, cardNumber: formatCard(e.target.value) })} placeholder="4242 4242 4242 4242" className={`${inputClass} font-mono tracking-wider`} />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="po-exp" className="block text-xs font-bold text-slate-700 mb-1">Expiry</label>
-                  <input id="po-exp" inputMode="numeric" autoComplete="cc-exp" value={card.expiry}
-                    onChange={e => setCard({ ...card, expiry: formatExpiry(e.target.value) })} placeholder="MM/YY" className={`${inputClass} font-mono`} />
-                </div>
-                <div>
-                  <label htmlFor="po-cvc" className="block text-xs font-bold text-slate-700 mb-1">CVC</label>
-                  <input id="po-cvc" inputMode="numeric" autoComplete="cc-csc" value={card.cvc} maxLength={4}
-                    onChange={e => setCard({ ...card, cvc: e.target.value.replace(/\D/g, "") })} placeholder="123" className={`${inputClass} font-mono`} />
-                </div>
-              </div>
-              <div>
-                <label htmlFor="po-name" className="block text-xs font-bold text-slate-700 mb-1">Name on card</label>
-                <input id="po-name" autoComplete="cc-name" value={card.cardholderName} onChange={e => setCard({ ...card, cardholderName: e.target.value })} className={inputClass} />
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl p-3">Your points cover {instalment ? "this instalment" : "the whole bill"} — no card needed.</p>
-          )}
+          <dl className="rounded-xl bg-slate-50 border border-slate-200 p-4 text-sm space-y-1.5">
+            <div className="flex justify-between"><dt className="text-slate-600">{instalment ? "Instalment" : "Balance due"}</dt><dd className="font-bold tabular-nums">{lkr(target)}</dd></div>
+            {points > 0 && <div className="flex justify-between"><dt className="text-slate-600">Loyalty points ({points.toLocaleString()})</dt><dd className="font-bold tabular-nums text-emerald-700">− {lkr(pointsWorth)}</dd></div>}
+            <div className="flex justify-between border-t border-slate-200 pt-1.5"><dt className="font-bold text-slate-900">To pay now</dt><dd className="font-black tabular-nums text-slate-900">{lkr(toCharge)}</dd></div>
+          </dl>
 
           {error && <p role="alert" className="text-sm font-bold text-red-600">{error}</p>}
 
-          <button type="submit" disabled={paying || (needsCard && (card.cardNumber.length < 15 || card.expiry.length < 5 || card.cvc.length < 3 || card.cardholderName.trim().length < 2))}
-            className="w-full py-3.5 rounded-xl font-black text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
-            {paying ? "Processing..." : needsCard ? `Pay ${lkr(cardAmount)}` : "Pay with points"}
+          <button type="submit" disabled={busy || !detail} className="w-full py-3.5 rounded-xl font-black text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
+            {busy ? "Opening secure checkout..." : toCharge > 0 ? "Continue to secure payment" : "Pay with points"}
           </button>
           <button type="button" onClick={onClose} className="w-full py-2 text-sm font-bold text-slate-600 hover:text-slate-900">Cancel</button>
 
-          <p className="text-[11px] text-slate-500 leading-relaxed">
-            Demo payment gateway — no real money is charged. Test cards: <span className="font-mono">4242 4242 4242 4242</span> (approved),
-            <span className="font-mono"> 4000 0000 0000 0002</span> (declined), <span className="font-mono">4000 0000 0000 9995</span> (insufficient funds).
-            Card numbers are never stored; only the last 4 digits appear on your receipt.
-          </p>
+          {toCharge > 0 && (
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              You&apos;ll be taken to the payment gateway to pay by card, online banking or mobile wallet. Points are only used once the payment goes through.
+            </p>
+          )}
         </div>
       </form>
     </div>

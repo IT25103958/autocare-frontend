@@ -8,6 +8,8 @@ const rolePermissions: Record<string, string[]> = {
   '/customers/dashboard': ['CUSTOMER'],
   '/customers/book':      ['CUSTOMER'],
   '/customers/profile':   ['CUSTOMER'],
+  // Payment gateway checkout for a customer's own bill.
+  '/pay':                 ['CUSTOMER'],
   '/membership': ['CUSTOMER_RELATIONS_OFFICER'],
   '/bookings':   ['TECHNICIAN', 'SERVICE_CENTER_MANAGER'],
   '/tanks':      ['FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER'],
@@ -81,6 +83,6 @@ export const config = {
     '/bookings/:path*', '/tanks/:path*', '/fuel/:path*', '/fuel-deliveries/:path*', '/suppliers/:path*', '/payables/:path*',
     '/salary/:path*', '/complaints/:path*', '/customers/:path*', '/deliveries/:path*',
     '/parts/:path*', '/rma/:path*', '/support/:path*', '/roster/:path*', '/users/:path*',
-    '/pos/:path*', '/audit/:path*', '/membership/:path*', '/billing/:path*', '/expenses/:path*', '/reports/:path*', '/warranty/:path*'
+    '/pos/:path*', '/audit/:path*', '/membership/:path*', '/billing/:path*', '/expenses/:path*', '/reports/:path*', '/warranty/:path*', '/pay/:path*'
   ],
 };

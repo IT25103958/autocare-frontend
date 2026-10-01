@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import api from "../../utils/axiosInstance";
+import Link from "next/link";
 import { useAuth } from "../context/AuthContext";
 
 interface UserAccount {
@@ -149,7 +150,9 @@ export default function UserManagementDashboard() {
                 return (
                   <tr key={u.id} className={`border-b border-slate-50 transition-colors ${isDeactivated ? "bg-slate-50 opacity-70" : "hover:bg-slate-50/50"}`}>
                     <td className="py-4 pr-4">
-                      <div className="font-bold text-slate-900">{u.fullName} {isSelf && <span className="text-blue-500 text-xs">(You)</span>}</div>
+                      <Link href={isSelf ? "/profile" : `/profile/${encodeURIComponent(u.username)}`} className="font-bold text-slate-900 hover:text-blue-700 hover:underline">
+                        {u.fullName} {isSelf && <span className="text-blue-500 text-xs">(You)</span>}
+                      </Link>
                       <div className="text-xs text-slate-400 mt-0.5 font-mono">@{u.username}</div>
                       {isDeactivated && <div className="text-[10px] font-black text-red-600 uppercase mt-0.5">Deactivated</div>}
                       {!isDeactivated && u.mustChangePassword && <div className="text-[10px] font-black text-amber-600 uppercase mt-0.5">Temporary password — not signed in yet</div>}

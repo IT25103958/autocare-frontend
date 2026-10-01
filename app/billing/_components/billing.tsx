@@ -21,6 +21,8 @@ export interface Invoice {
   status: "UNPAID" | "PARTIALLY_PAID" | "PAID";
   issuedAt: string;
   paidAt: string | null;
+  // Methods used so far, e.g. "Loyalty points, Online card".
+  paidVia: string | null;
 }
 
 export interface Payment {
@@ -35,6 +37,13 @@ export interface Payment {
   cardBrand: string | null;
   cardLast4: string | null;
   pointsRedeemed: number | null;
+  // ONLINE only: CARD / BANK / WALLET, the bank or wallet, and the last digits of the account.
+  onlineChannel: "CARD" | "BANK" | "WALLET" | null;
+  provider: string | null;
+  accountMask: string | null;
+  // Filled in by the server: "Online banking" and "Online banking — City Commercial Bank ending 5678".
+  methodName: string;
+  methodLabel: string;
   receivedBy: string;
   paidAt: string;
 }
@@ -99,7 +108,7 @@ export const METHOD_LABEL: Record<string, string> = {
   CASH: "Cash",
   CARD: "Card",
   BANK_TRANSFER: "Bank transfer",
-  ONLINE: "Online card",
+  ONLINE: "Online (gateway)",
   LOYALTY_POINTS: "Loyalty points",
 };
 
@@ -146,9 +155,7 @@ export function InvoiceStatusBadge({ status }: { status: string }) {
 }
 
 export function paymentText(p: Payment) {
-  let s = METHOD_LABEL[p.method] || p.method;
-  if (p.cardLast4) s += ` ${p.cardBrand ? p.cardBrand + " " : ""}•••• ${p.cardLast4}`;
-  if (p.pointsRedeemed) s += ` (${p.pointsRedeemed} pts)`;
+  let s = p.methodLabel || METHOD_LABEL[p.method] || p.method;
   if (p.method === "CASH" && p.changeGiven && p.changeGiven > 0) s += ` · change ${lkr(p.changeGiven)}`;
   if (p.reference && (p.method === "ONLINE" || p.method === "BANK_TRANSFER")) s += ` · ${p.reference}`;
   return s;

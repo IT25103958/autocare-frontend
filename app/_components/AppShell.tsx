@@ -330,17 +330,20 @@ function AccountMenu() {
       {open && (
         <div className="absolute right-0 top-full pt-2 z-[70]">
           <div role="menu" className="nav-pop w-64 rounded-2xl bg-white border border-slate-200 shadow-2xl shadow-slate-900/10 overflow-hidden">
-            <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3">
+            <Link href="/profile" className="px-4 py-3 border-b border-slate-100 flex items-center gap-3 hover:bg-slate-50 transition-colors">
               <span className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center text-sm font-bold">{initials(name)}</span>
               <span className="min-w-0">
                 <span className="block text-sm font-bold text-slate-900 truncate">{name}</span>
                 <span className="block text-[11px] font-semibold text-blue-700 truncate">{roleLabel(user.role)}</span>
               </span>
-            </div>
+            </Link>
             <div className="p-1.5">
+              <Link href="/profile" role="menuitem" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                <Icon name="user" className="w-4 h-4 text-slate-500" /> My Profile
+              </Link>
               {user.role === "CUSTOMER" && (
                 <Link href="/customers/profile" role="menuitem" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                  <Icon name="user" className="w-4 h-4 text-slate-500" /> My Account
+                  <Icon name="star" className="w-4 h-4 text-slate-500" /> Vehicle & Rewards
                 </Link>
               )}
               <Link href="/change-password" role="menuitem" className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50">
@@ -464,7 +467,9 @@ function CategoryRow({ items, pages, current }: { items: NavItem[]; pages: (NavL
 
       {/* Quick links */}
       <div ref={linksRef} className="relative flex-1 min-w-0 flex items-center">
-        <div ref={measureRef} className="absolute invisible pointer-events-none flex" aria-hidden="true">
+        {/* Hidden copy of every link, only to measure their widths. Clipped to zero size so
+            the off-screen links can't stretch the page and cause a sideways scrollbar. */}
+        <div ref={measureRef} className="absolute left-0 top-0 w-0 h-0 overflow-hidden invisible pointer-events-none flex" aria-hidden="true">
           {pages.map(p => <span key={p.href + p.name} className={linkClass(false)}>{p.name}</span>)}
         </div>
 
@@ -596,6 +601,9 @@ function MobileMenu({ items, current, onClose, onLogout }: { items: NavItem[]; c
         </nav>
 
         <div className="p-3 border-t border-slate-200 space-y-1">
+          <Link href="/profile" onClick={onClose} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100">
+            <Icon name="user" className="w-4 h-4 text-slate-500" /> My Profile
+          </Link>
           <Link href="/change-password" onClick={onClose} className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-100">
             <Icon name="key" className="w-5 h-5 text-slate-500" /> Change Password
           </Link>
@@ -649,6 +657,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const items = useMemo(() => (showNav ? navFor(user!.role, supplierCategories) : []), [showNav, user, supplierCategories]);
   const pages = useMemo(() => flatten(items), [items]);
   const current = activeHref(pathname, pages);
+
+  // The payment gateway is its own site in the real world: no app header or footer around it.
+  if (pathname.startsWith("/pay/")) return <>{children}</>;
 
   return (
     <div className="min-h-screen flex flex-col">

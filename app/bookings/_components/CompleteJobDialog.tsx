@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import api from "../../../utils/axiosInstance";
+import { useAuth } from "../../context/AuthContext";
 import { Booking, errorText, fmtWhen, jobRef, rupees } from "./booking";
 
 interface SparePart {
@@ -25,6 +26,11 @@ export default function CompleteJobDialog({ booking, onClose, onSaved }: {
   const [inventory, setInventory] = useState<SparePart[]>([]);
   const [history, setHistory] = useState<Booking[]>([]);
   const [selected, setSelected] = useState<{ partId: number; name: string; qty: number; unitPrice: number; stock: number }[]>([]);
+  // A technician can add labour but not go below the quoted package price, and can't
+  // close a job with nothing to bill; a manager can do both (the server enforces it).
+  const { user } = useAuth();
+  const isManager = ["SERVICE_CENTER_MANAGER", "SUPER_ADMIN", "SYSTEM_ADMIN"].includes(user?.role || "");
+  const quoted = booking.quotedPrice ?? 0;
   const [labour, setLabour] = useState<number>(booking.quotedPrice ?? 0);
   const [report, setReport] = useState("");
   const [search, setSearch] = useState("");
@@ -133,10 +139,12 @@ export default function CompleteJobDialog({ booking, onClose, onSaved }: {
                 <div className="flex justify-between"><span className="text-slate-600">Parts</span><span className="font-bold tabular-nums">{rupees(partsTotal)}</span></div>
                 <div className="flex justify-between items-center">
                   <label htmlFor="labour" className="text-slate-600">Labour <span className="text-xs">(package {rupees(booking.quotedPrice)})</span></label>
-                  <input id="labour" type="number" min={0} value={labour} onChange={e => setLabour(Number(e.target.value))}
+                  <input id="labour" type="number" min={isManager ? 0 : quoted} value={labour} onChange={e => setLabour(Number(e.target.value))}
                     className="w-28 px-2 py-1.5 rounded-lg border border-slate-200 text-right font-bold tabular-nums outline-none focus:border-blue-500" />
                 </div>
                 <div className="flex justify-between pt-2 border-t border-slate-200"><span className="font-black">Before tax & discounts</span><span className="font-black tabular-nums">{rupees(partsTotal + labour)}</span></div>
+                {!isManager && labour < quoted && <p className="text-xs font-bold text-red-600">Labour can&apos;t be less than the quoted {rupees(quoted)} — ask the manager to approve a lower charge.</p>}
+                {!isManager && partsTotal + labour <= 0 && <p className="text-xs font-bold text-red-600">There is nothing to bill — only the manager can close a no-charge job.</p>}
                 <p className="text-xs text-slate-500">Active pricing rules (discounts, tax) are applied when you finish.</p>
               </div>
             </div>
@@ -169,7 +177,7 @@ export default function CompleteJobDialog({ booking, onClose, onSaved }: {
 
         <div className="px-6 md:px-8 py-4 border-t border-slate-100 flex justify-end gap-3">
           <button onClick={onClose} className="px-5 py-2.5 rounded-xl font-bold text-slate-700 bg-slate-100 hover:bg-slate-200">Cancel</button>
-          <button onClick={save} disabled={saving || report.trim().length < 5} className="px-6 py-2.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
+          <button onClick={save} disabled={saving || report.trim().length < 5 || (!isManager && (labour < quoted || partsTotal + labour <= 0))} className="px-6 py-2.5 rounded-xl font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
             {saving ? "Finishing..." : "Finish Job"}
           </button>
         </div>
