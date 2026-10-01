@@ -20,6 +20,14 @@ const rolePermissions: Record<string, string[]> = {
   // manager parts suppliers, Finance manages payment details and balances.
   '/suppliers':  ['ACCOUNTS_FINANCE_OFFICER', 'FUEL_STATION_SUPERVISOR', 'INVENTORY_MANAGER'],
   '/payables':   ['ACCOUNTS_FINANCE_OFFICER'],
+  // Customer billing desk (collect payments, takings, receipts).
+  '/billing':    ['ACCOUNTS_FINANCE_OFFICER'],
+  // Daily expense log.
+  '/expenses':   ['ACCOUNTS_FINANCE_OFFICER'],
+  // PDF / Excel finance reports.
+  '/reports':    ['ACCOUNTS_FINANCE_OFFICER'],
+  // Customer warranty claims (verify, replace/refund, supplier return).
+  '/warranty':   ['ACCOUNTS_FINANCE_OFFICER', 'INVENTORY_MANAGER'],
   // FIXED: Added FUEL_ATTENDANT to /salary/my-payslips
   '/salary/my-payslips': ['TECHNICIAN', 'SERVICE_CENTER_MANAGER', 'FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER', 'INVENTORY_MANAGER', 'CUSTOMER_RELATIONS_OFFICER', 'FUEL_ATTENDANT'],
   '/salary':     ['ACCOUNTS_FINANCE_OFFICER'],
@@ -73,6 +81,6 @@ export const config = {
     '/bookings/:path*', '/tanks/:path*', '/fuel/:path*', '/fuel-deliveries/:path*', '/suppliers/:path*', '/payables/:path*',
     '/salary/:path*', '/complaints/:path*', '/customers/:path*', '/deliveries/:path*',
     '/parts/:path*', '/rma/:path*', '/support/:path*', '/roster/:path*', '/users/:path*',
-    '/pos/:path*', '/audit/:path*', '/membership/:path*'
+    '/pos/:path*', '/audit/:path*', '/membership/:path*', '/billing/:path*', '/expenses/:path*', '/reports/:path*', '/warranty/:path*'
   ],
 };

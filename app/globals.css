@@ -24,14 +24,81 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
-/* Optional: Custom scrollbar for a premium feel */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
+/* --- Navigation animations (AppShell) --- */
+@keyframes nav-pop {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
+@keyframes nav-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
 }
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: #cbd5e1;
-  border-radius: 20px;
+@keyframes nav-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes nav-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.nav-pop { animation: nav-pop 180ms cubic-bezier(0.16, 1, 0.3, 1) both; transform-origin: top center; }
+.nav-slide-in { animation: nav-slide-in 280ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.nav-fade-up { animation: nav-fade-up 320ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.nav-fade { animation: nav-fade 200ms ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-pop, .nav-slide-in, .nav-fade-up, .nav-fade { animation: none; }
+}
+
+/* --- Home page animations --- */
+@keyframes home-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+@keyframes home-spin { to { transform: rotate(360deg); } }
+@keyframes home-sweep { 0% { transform: translateX(-120%) skewX(-20deg); } 100% { transform: translateX(260%) skewX(-20deg); } }
+@keyframes home-marquee { to { transform: translateX(-50%); } }
+@keyframes home-ping { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(1.8); opacity: 0; } }
+.home-float { animation: home-float 6s ease-in-out infinite; }
+.home-sweep { animation: home-sweep 4.5s ease-in-out infinite; }
+.home-marquee { animation: home-marquee 38s linear infinite; }
+.home-marquee:hover { animation-play-state: paused; }
+.home-ping { animation: home-ping 1.8s cubic-bezier(0, 0, 0.2, 1) infinite; }
+@keyframes home-grow { 0% { transform: scaleX(0.35); } 60%, 100% { transform: scaleX(1); } }
+.home-grow { transform-origin: left center; animation: home-grow 3.5s cubic-bezier(0.16, 1, 0.3, 1) infinite alternate; }
+
+/* Scroll-reveal: elements start hidden and animate in when .is-visible is added. */
+.reveal { opacity: 0; transform: translateY(28px); transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1), transform 700ms cubic-bezier(0.16, 1, 0.3, 1); }
+.reveal.is-visible { opacity: 1; transform: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .home-float, .home-sweep, .home-marquee, .home-ping, .home-grow { animation: none; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+}
+
+
+/* --- Hero entrance + ambient motion --- */
+@keyframes hero-rise { from { transform: translateY(110%); } to { transform: translateY(0); } }
+@keyframes hero-fade-up { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+@keyframes hero-card-in { from { opacity: 0; transform: translateY(48px) scale(0.9); } to { opacity: 1; transform: none; } }
+@keyframes hero-shimmer { to { background-position: -200% center; } }
+@keyframes hero-drift { 0%, 100% { transform: translate(0, 0) scale(1); } 50% { transform: translate(48px, -36px) scale(1.15); } }
+/* Headline lines slide up from behind a mask; the padding keeps descenders unclipped. */
+.hero-line { display: block; overflow: hidden; padding-bottom: 0.14em; margin-bottom: -0.14em; }
+.hero-line > span { display: inline-block; animation: hero-rise 900ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.hero-fade-up { animation: hero-fade-up 800ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.hero-card-in { animation: hero-card-in 1000ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.hero-shimmer {
+  background-image: linear-gradient(110deg, #93c5fd 0%, #bae6fd 25%, #ffffff 50%, #bae6fd 75%, #93c5fd 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: hero-shimmer 6s linear infinite;
+}
+.hero-blob { animation: hero-drift 14s ease-in-out infinite; }
+.home-spin-slow { animation: home-spin 60s linear infinite; }
+/* Pointer parallax: --mx / --my are set on the hero section, --depth per layer. */
+.hero-layer {
+  transform: translate3d(calc(var(--mx, 0) * var(--depth, 20px)), calc(var(--my, 0) * var(--depth, 20px)), 0);
+  transition: transform 500ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-line > span, .hero-fade-up, .hero-card-in, .hero-shimmer, .hero-blob, .home-spin-slow { animation: none; }
+  .hero-layer { transform: none; transition: none; }
 }

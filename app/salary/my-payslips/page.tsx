@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import axios from "axios";
+import api from "../../../utils/axiosInstance";
 import { useAuth } from "../../context/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -34,9 +34,7 @@ export default function MyPayslipsPage() {
   useEffect(() => {
     const fetchMySalaries = async () => {
       try {
-        const res = await axios.get("http://localhost:8080/api/salary/my-salary", {
-          headers: { Authorization: `Bearer ${localStorage.getItem("jwtToken")}` }
-        });
+        const res = await api.get("/salary/my-salary");
         setSalaries(res.data);
       } catch (err) {
         console.error("Failed to fetch salary history", err);
@@ -53,10 +51,7 @@ export default function MyPayslipsPage() {
   const handleDownloadPdf = async (salaryId: number) => {
     setDownloadingId(salaryId);
     try {
-      const response = await axios.get(`http://localhost:8080/api/salary/${salaryId}/payslip`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("jwtToken")}` },
-        responseType: 'blob'
-      });
+      const response = await api.get(`/salary/${salaryId}/payslip`, { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;

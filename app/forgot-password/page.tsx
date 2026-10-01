@@ -3,11 +3,8 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import axios from "axios";
-
-// Plain axios on purpose: this page is used while signed out, so no token
-// should be attached.
-const API = "http://localhost:8080/api";
+// The token-free client: this page is used while signed out.
+import { publicApi } from "../../utils/axiosInstance";
 
 // Same rules as the backend's PasswordPolicy.
 function passwordProblem(pw: string): string | null {
@@ -64,7 +61,7 @@ function ForgotPasswordFlow() {
     if (!identifier.trim()) { setError("Enter your username or email address."); return; }
     setBusy(true);
     try {
-      const res = await axios.post(`${API}/auth/forgot-password`, { identifier: identifier.trim() });
+      const res = await publicApi.post("/auth/forgot-password", { identifier: identifier.trim() });
       setMaskedEmail(res.data.maskedEmail);
       setNotice(res.data.message);
       setStep("reset");
@@ -95,7 +92,7 @@ function ForgotPasswordFlow() {
     if (password !== confirm) { setError("The passwords don't match."); return; }
     setBusy(true);
     try {
-      await axios.post(`${API}/auth/reset-password`, { identifier: identifier.trim(), code: code.trim(), newPassword: password });
+      await publicApi.post("/auth/reset-password", { identifier: identifier.trim(), code: code.trim(), newPassword: password });
       setStep("done");
     } catch (err) {
       setError(messageOf(err, "Couldn't reset the password. Please try again."));

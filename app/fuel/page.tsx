@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "../context/AuthContext";
 import api from "../../utils/axiosInstance";
 import { getErrorMessage } from "../../utils/apiError";
+import { downloadFile } from "../billing/_components/billing";
 
 // Pump number is optional here: an attendant's pump comes from their open
 // shift on the server; only a supervisor covering a pump picks one.
@@ -15,6 +16,8 @@ const fuelSaleSchema = z.object({
   pumpNumber: z.string().optional(),
   litersPumped: z.coerce.number().gt(0, "Liters must be greater than 0.").max(1000, "A single sale can't exceed 1000 L."),
   paymentMethod: z.enum(["CASH", "CARD", "QR"]),
+  // Optional: links the sale to a registered customer so they get the receipt in their portal.
+  vehicleRegNo: z.string().trim().regex(/^[A-Za-z0-9 -]{3,15}$/, "Use letters, digits and dashes, e.g. CAB-4521.").or(z.literal("")).optional(),
 });
 
 // z.coerce makes the raw input type differ from the parsed output type.
@@ -35,6 +38,7 @@ interface FuelSale {
   voidedBy?: string;
   unitPrice?: number | null;
   paymentMethod?: string | null;
+  vehicleRegNo?: string | null;
 }
 
 interface PageResponse<T> {
@@ -88,7 +92,7 @@ export default function FuelPosPage() {
 
   const { register, handleSubmit, reset, watch, formState: { errors, isSubmitting } } = useForm<FuelSaleFormInputs, unknown, FuelSaleFormValues>({
     resolver: zodResolver(fuelSaleSchema),
-    defaultValues: { fuelType: "", pumpNumber: "", paymentMethod: "CASH" },
+    defaultValues: { fuelType: "", pumpNumber: "", paymentMethod: "CASH", vehicleRegNo: "" },
   });
 
   const selectedFuel = watch("fuelType");
@@ -145,15 +149,24 @@ export default function FuelPosPage() {
         litersPumped: data.litersPumped,
         pumpNumber: isSupervisor ? Number(data.pumpNumber) : undefined,
         paymentMethod: data.paymentMethod,
+        vehicleRegNo: data.vehicleRegNo || undefined,
       });
-      flash("success", `Transaction #${response.data.saleId} recorded — Rs. ${response.data.totalCost.toFixed(2)}.`);
+      flash("success", `Transaction #${response.data.saleId} recorded — Rs. ${response.data.totalCost.toFixed(2)}. Use "Receipt" in the list to print it.`);
       // Keep pump and fuel selected for the next customer; clear the liters.
-      reset({ fuelType: data.fuelType, pumpNumber: data.pumpNumber, litersPumped: "", paymentMethod: "CASH" });
+      reset({ fuelType: data.fuelType, pumpNumber: data.pumpNumber, litersPumped: "", paymentMethod: "CASH", vehicleRegNo: "" });
       // Show the new sale at the top.
       setPage(0);
       fetchData();
     } catch (err) {
       flash("error", getErrorMessage(err, "Transaction failed."));
+    }
+  };
+
+  const printReceipt = async (saleId: number) => {
+    try {
+      await downloadFile(`/fuel/${saleId}/receipt`, `fuel-receipt-${saleId}.pdf`);
+    } catch (err) {
+      flash("error", getErrorMessage(err, "Couldn't download the receipt."));
     }
   };
 
@@ -285,6 +298,19 @@ export default function FuelPosPage() {
                 {errors.litersPumped && <p className="mt-1 text-xs font-bold text-red-500">{errors.litersPumped.message}</p>}
               </div>
 
+              <div>
+                <label htmlFor="vehicleRegNo" className="block text-sm font-bold text-slate-700 mb-1">Vehicle number <span className="font-medium text-slate-400">(optional)</span></label>
+                <input
+                  id="vehicleRegNo"
+                  {...register("vehicleRegNo")}
+                  placeholder="e.g., CAB-4521"
+                  maxLength={15}
+                  className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 focus:bg-white outline-none uppercase font-mono font-bold text-slate-800 ${errors.vehicleRegNo ? "border-red-500" : "border-slate-200 focus:border-blue-500"}`}
+                />
+                <p className="mt-1 text-[11px] text-slate-400 font-medium">Registered customers see this purchase and its receipt in their portal.</p>
+                {errors.vehicleRegNo && <p className="mt-1 text-xs font-bold text-red-500">{errors.vehicleRegNo.message}</p>}
+              </div>
+
               <div className="bg-slate-900 text-white rounded-2xl p-5 mt-6 shadow-xl">
                 <div className="flex justify-between text-sm mb-2 font-medium">
                   <span className="text-slate-400">Current Unit Price</span>
@@ -329,13 +355,14 @@ export default function FuelPosPage() {
                     <th className="pb-4 pr-4">Attendant</th>
                     <th className="pb-4 pr-4 text-right">Liters</th>
                     <th className="pb-4 pr-4 text-right">Revenue</th>
+                    <th className="pb-4 pr-4 text-right">Receipt</th>
                     {isSupervisor && <th className="pb-4 text-right">Manager Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="text-sm font-medium text-slate-700">
                   {sales.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="text-center py-12 text-slate-500 font-medium">
+                      <td colSpan={7} className="text-center py-12 text-slate-500 font-medium">
                         <div className="text-4xl mb-4">⛽</div>
                         <p className="text-slate-500 font-medium">No sales recorded yet.</p>
                       </td>
@@ -374,6 +401,13 @@ export default function FuelPosPage() {
                             {PAYMENT_LABELS[s.paymentMethod ?? "CASH"] ?? s.paymentMethod}
                             {s.unitPrice != null && ` · @ Rs. ${s.unitPrice.toFixed(2)}/L`}
                           </p>
+                          {s.vehicleRegNo && <p className="text-[10px] font-bold font-mono text-slate-400 mt-0.5">{s.vehicleRegNo}</p>}
+                        </td>
+                        <td className="py-4 pr-4 text-right">
+                          <button onClick={() => printReceipt(s.saleId)}
+                            className="text-[9px] font-black tracking-widest uppercase text-blue-700 hover:text-white bg-blue-50 hover:bg-blue-600 border border-blue-100 px-3 py-1.5 rounded-md transition-colors">
+                            Receipt
+                          </button>
                         </td>
 
                         {isSupervisor && (

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import axios from "axios";
+import { publicApi } from "../../utils/axiosInstance";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -31,7 +31,7 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginFormInputs) => {
     setServerError("");
     try {
-      const response = await axios.post("http://localhost:8080/api/auth/login", {
+      const response = await publicApi.post("/auth/login", {
         username: data.username,
         password: data.password,
       });

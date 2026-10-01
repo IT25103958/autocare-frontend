@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import axios from "axios";
+import api from "../../../utils/axiosInstance";
 import { useAuth } from "../../context/AuthContext";
 import Link from "next/link";
 import CustomerUpcoming from "../../bookings/_components/CustomerUpcoming";
+import CustomerBills from "../../billing/_components/CustomerBills";
+import CustomerFuelPurchases from "../../billing/_components/CustomerFuelPurchases";
 import { Booking, STATUS_LABEL, rupees } from "../../bookings/_components/booking";
 
 type ServiceBooking = Booking & { vehicleModel?: string };
@@ -25,10 +27,8 @@ export default function CustomerDashboard() {
   const [profileMissing, setProfileMissing] = useState(false);
   const [cutoffHours, setCutoffHours] = useState(12);
 
-  const getAuthHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem("jwtToken")}` } });
-
   const loadBookings = () =>
-    axios.get("http://localhost:8080/api/bookings/my-bookings", getAuthHeader())
+    api.get("/bookings/my-bookings")
       .then(res => setBookings(res.data.sort((a: ServiceBooking, b: ServiceBooking) => b.bookingID - a.bookingID)))
       .catch(() => setBookings([]));
 
@@ -37,10 +37,10 @@ export default function CustomerDashboard() {
     if (!user) return;
 
     loadBookings();
-    axios.get("http://localhost:8080/api/customers/my-profile", getAuthHeader())
+    api.get("/customers/my-profile")
       .then(res => { setProfile(res.data); setProfileMissing(false); })
       .catch(err => { setProfile(null); setProfileMissing(err?.response?.status === 404); });
-    axios.get("http://localhost:8080/api/bookings/rules", getAuthHeader())
+    api.get("/bookings/rules")
       .then(res => setCutoffHours(res.data.changeCutoffHours ?? 12))
       .catch(() => {});
   }, [user]);
@@ -160,7 +160,7 @@ export default function CustomerDashboard() {
                   )}
                   {activeBooking.status === "COMPLETED" && (
                     <div className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-900">
-                      <span className="font-bold">Ready for pickup.</span> Amount due: <span className="font-bold">{rupees(activeBooking.netTotal)}</span>
+                      <span className="font-bold">Ready for pickup.</span> Amount due: <span className="font-bold">{rupees(activeBooking.netTotal)}</span> — pay at the counter or online under <span className="font-bold">My Bills</span> below.
                     </div>
                   )}
 
@@ -189,6 +189,10 @@ export default function CustomerDashboard() {
                 </div>
               )}
             </div>
+
+            <CustomerBills onPaid={loadBookings} />
+
+            <CustomerFuelPurchases />
 
             <CustomerUpcoming bookings={upcoming} cutoffHours={cutoffHours} onChanged={loadBookings} />
 

@@ -2,29 +2,13 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import axios, { AxiosInstance } from "axios";
+import FinanceAlerts from "./FinanceAlerts";
+import api from "../../../utils/axiosInstance";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, CartesianGrid,
   LineChart, Line,
 } from "recharts";
-
-// =============================================================================
-// CONFIG
-// Reads from env so this actually works once deployed, not just on localhost.
-// Add NEXT_PUBLIC_API_BASE_URL to your .env.local / hosting provider's env vars.
-// =============================================================================
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
-
-const api: AxiosInstance = axios.create({ baseURL: API_BASE_URL });
-
-api.interceptors.request.use((config) => {
-  if (typeof window !== "undefined") {
-    const token = window.localStorage.getItem("jwtToken");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
 
 // =============================================================================
 // TYPES
@@ -345,14 +329,14 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
     else setLoading(true);
 
     const [bookRes, posRes, payRes, rmaRes, salaryRes, rulesRes, handRes, intradayRes] = await Promise.allSettled([
-      api.get<Booking[]>("/api/bookings"),
-      api.get<POSRecord[]>("/api/pos/history"),
-      api.get<Payable[]>("/api/payables"),
-      api.get<RmaCredit[]>("/api/rma"),
-      api.get<SalaryRecord[]>("/api/salary"),
-      api.get<PricingRule[]>("/api/pricing-rules"),
-      api.get<ShiftHandover[]>("/api/pumps/handovers"),
-      api.get<IntradayPoint[]>("/api/analytics/intraday-cashflow"),
+      api.get<Booking[]>("/bookings"),
+      api.get<POSRecord[]>("/pos/history"),
+      api.get<Payable[]>("/payables"),
+      api.get<RmaCredit[]>("/rma"),
+      api.get<SalaryRecord[]>("/salary"),
+      api.get<PricingRule[]>("/pricing-rules"),
+      api.get<ShiftHandover[]>("/pumps/handovers"),
+      api.get<IntradayPoint[]>("/analytics/intraday-cashflow"),
     ]);
 
     const errors: FetchErrors = {};
@@ -398,7 +382,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
     }
     setSavingRule(true);
     try {
-      await api.post("/api/pricing-rules", newRule);
+      await api.post("/pricing-rules", newRule);
       setNewRule({ ruleName: "", ruleType: "TAX", percentage: 0 });
       pushToast("success", `"${newRule.ruleName}" was added and is now live on new invoices.`);
       await fetchAll();
@@ -412,7 +396,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
   const handleToggleRule = useCallback(async (rule: PricingRule) => {
     setPendingRuleIds((prev) => new Set(prev).add(rule.id));
     try {
-      await api.put(`/api/pricing-rules/${rule.id}/toggle`, {});
+      await api.put(`/pricing-rules/${rule.id}/toggle`, {});
       const isActive = rule.active !== undefined ? rule.active : rule.isActive;
       pushToast("success", `"${rule.ruleName}" is now ${isActive ? "inactive" : "active"}.`);
       await fetchAll();
@@ -430,7 +414,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
   const handleDeleteRule = useCallback(async (rule: PricingRule) => {
     setPendingRuleIds((prev) => new Set(prev).add(rule.id));
     try {
-      await api.delete(`/api/pricing-rules/${rule.id}`);
+      await api.delete(`/pricing-rules/${rule.id}`);
       pushToast("success", `"${rule.ruleName}" was deleted.`);
       await fetchAll();
     } catch {
@@ -451,7 +435,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
   const handleReviewHandover = useCallback(async (h: ShiftHandover, action: "approve" | "reject", note: string) => {
     setPendingHandoverIds((prev) => new Set(prev).add(h.id));
     try {
-      await api.put(`/api/pumps/handovers/${h.id}/${action}`, { note: note.trim() || null });
+      await api.put(`/pumps/handovers/${h.id}/${action}`, { note: note.trim() || null });
       pushToast("success", action === "approve"
         ? `Pump #${h.pumpNumber}'s handover was approved and cleared.`
         : `Pump #${h.pumpNumber}'s handover was sent back to the supervisor for a recount.`);
@@ -832,6 +816,8 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
         <div className="absolute -top-32 -right-32 w-[30rem] h-[30rem] bg-blue-600/20 rounded-full blur-[100px] pointer-events-none" />
       </div>
 
+      <FinanceAlerts refreshKey={lastUpdated?.getTime() ?? 0} />
+
       {/* KPI CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <KpiCard icon={<IconWallet className="w-5 h-5" />} label="Total Gross Revenue" value={formatCompactLKR(analytics.totalGrossRevenue)} exactValue={formatLKR(analytics.totalGrossRevenue)} sub="Cash actually received" accent="text-emerald-600 bg-emerald-50" />
@@ -858,7 +844,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="time" interval={2} tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} tickFormatter={(val) => `${val / 1000}k`} />
-                <Tooltip contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value: number) => [formatLKR(value), "Collected"]} />
+                <Tooltip contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value) => [formatLKR(Number(value)), "Collected"]} />
                 <Line type="monotone" dataKey="amount" stroke="#3b82f6" strokeWidth={4} dot={{ r: 3, fill: "#3b82f6", strokeWidth: 2, stroke: "#fff" }} activeDot={{ r: 6 }} />
               </LineChart>
             </ResponsiveContainer>
@@ -878,7 +864,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
                   <Pie data={analytics.debtPieData} innerRadius={90} outerRadius={130} paddingAngle={4} dataKey="value" stroke="none">
                     {analytics.debtPieData.map((_, index) => <Cell key={index} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
                   </Pie>
-                  <Tooltip contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value: number) => [formatLKR(value), "Unpaid Debt"]} />
+                  <Tooltip contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value) => [formatLKR(Number(value)), "Unpaid Debt"]} />
                   <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: "11px", fontWeight: 900, color: "#0f172a", textTransform: "uppercase", letterSpacing: "1px" }} />
                 </PieChart>
               </ResponsiveContainer>
@@ -898,7 +884,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
               <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} tickFormatter={(val) => `Rs.${val / 1000}k`} />
-              <Tooltip cursor={{ fill: "#f8fafc" }} contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value: number) => [formatLKR(value), "Amount"]} />
+              <Tooltip cursor={{ fill: "#f8fafc" }} contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value) => [formatLKR(Number(value)), "Amount"]} />
               <Bar dataKey="amount" radius={[8, 8, 0, 0]}>
                 {analytics.revenueStreamData.map((entry, index) => <Cell key={index} fill={entry.fill} />)}
               </Bar>
@@ -912,8 +898,8 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
             <BarChart data={analytics.cashFlowPipeline} margin={{ top: 0, right: 30, left: 10, bottom: 0 }} layout="vertical" maxBarSize={50}>
               <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
               <XAxis type="number" tick={{ fontSize: 11, fill: "#64748b", fontWeight: "bold" }} axisLine={false} tickLine={false} tickFormatter={(val) => `Rs.${val / 1000}k`} />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "#0f172a", fontWeight: 900, textTransform: "uppercase" }} axisLine={false} tickLine={false} width={130} />
-              <Tooltip cursor={{ fill: "#f8fafc" }} contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value: number) => [formatLKR(value), "Total"]} />
+              <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "#0f172a", fontWeight: 900 }} tickFormatter={(name) => String(name).toUpperCase()} axisLine={false} tickLine={false} width={130} />
+              <Tooltip cursor={{ fill: "#f8fafc" }} contentStyle={{ borderRadius: "16px", border: "none", boxShadow: "0 10px 25px -5px rgb(0 0 0 / 0.1)" }} formatter={(value) => [formatLKR(Number(value)), "Total"]} />
               <Bar dataKey="value" radius={[0, 8, 8, 0]}>
                 {analytics.cashFlowPipeline.map((entry, index) => <Cell key={index} fill={entry.fill} />)}
               </Bar>

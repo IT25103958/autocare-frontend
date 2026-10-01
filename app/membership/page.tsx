@@ -13,6 +13,7 @@ interface Settings {
   silverPoints: number;
   goldPoints: number;
   platinumPoints: number;
+  pointValue: number;
   updatedBy: string | null;
   updatedAt: string | null;
 }
@@ -51,7 +52,7 @@ export default function MembershipPage() {
   // Programme rules editor
   const canEditRules = RULE_ROLES.includes(user?.role || "");
   const [editingRules, setEditingRules] = useState(false);
-  const [rules, setRules] = useState({ rupeesPerPoint: "", silverPoints: "", goldPoints: "", platinumPoints: "" });
+  const [rules, setRules] = useState({ rupeesPerPoint: "", silverPoints: "", goldPoints: "", platinumPoints: "", pointValue: "" });
   const [members, setMembers] = useState<CustomerProfile[]>([]);
   const [savingRules, setSavingRules] = useState(false);
 
@@ -63,6 +64,7 @@ export default function MembershipPage() {
       silverPoints: String(st.silverPoints),
       goldPoints: String(st.goldPoints),
       platinumPoints: String(st.platinumPoints),
+      pointValue: String(st.pointValue),
     });
     setEditingRules(true);
     // Lifetime points of every member, for the live "who changes tier" preview.
@@ -74,9 +76,11 @@ export default function MembershipPage() {
     silver: parseInt(rules.silverPoints, 10),
     gold: parseInt(rules.goldPoints, 10),
     platinum: parseInt(rules.platinumPoints, 10),
+    pointValue: parseFloat(rules.pointValue),
   };
   const draftError =
     !(draft.rate >= 1) ? "Earn rate must be at least Rs. 1 per point."
+    : !(draft.pointValue >= 0.01 && draft.pointValue <= 1000) ? "A point must be worth between Rs. 0.01 and Rs. 1,000 when redeemed."
     : !(draft.silver >= 1 && draft.gold >= 1 && draft.platinum >= 1) ? "Enter all three tier thresholds."
     : !(draft.silver < draft.gold && draft.gold < draft.platinum) ? "Thresholds must increase: Silver < Gold < Platinum."
     : "";
@@ -106,6 +110,7 @@ export default function MembershipPage() {
         silverPoints: draft.silver,
         goldPoints: draft.gold,
         platinumPoints: draft.platinum,
+        pointValue: draft.pointValue,
       });
       setNotice({
         type: "ok",
@@ -210,9 +215,10 @@ export default function MembershipPage() {
               </div>
 
               {!editingRules ? (
-                <dl className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+                <dl className="grid grid-cols-2 lg:grid-cols-5 gap-4 mt-4">
                   {[
                     ["Earn rate", `1 pt per Rs. ${s.settings.rupeesPerPoint.toLocaleString()}`],
+                    ["Redeem value", `1 pt = Rs. ${s.settings.pointValue.toFixed(2)}`],
                     ["Silver from", `${s.settings.silverPoints.toLocaleString()} pts`],
                     ["Gold from", `${s.settings.goldPoints.toLocaleString()} pts`],
                     ["Platinum from", `${s.settings.platinumPoints.toLocaleString()} pts`],
@@ -225,16 +231,17 @@ export default function MembershipPage() {
                 </dl>
               ) : (
                 <div className="mt-4 space-y-4">
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                     {([
                       ["rupeesPerPoint", "Rupees per point", "Rs."],
+                      ["pointValue", "Point worth when redeemed", "Rs."],
                       ["silverPoints", "Silver from", "pts"],
                       ["goldPoints", "Gold from", "pts"],
                       ["platinumPoints", "Platinum from", "pts"],
                     ] as const).map(([key, label, unit]) => (
                       <div key={key}>
                         <label htmlFor={`rule-${key}`} className="block text-xs font-bold text-slate-700 mb-1">{label} <span className="font-medium text-slate-500">({unit})</span></label>
-                        <input id={`rule-${key}`} type="number" min={1} value={rules[key]}
+                        <input id={`rule-${key}`} type="number" min={key === "pointValue" ? 0.01 : 1} step={key === "pointValue" ? "0.01" : "1"} value={rules[key]}
                           onChange={e => setRules({ ...rules, [key]: e.target.value })}
                           className="w-full px-3 py-2.5 border border-slate-200 bg-slate-50 rounded-xl text-sm tabular-nums outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
                       </div>
@@ -246,7 +253,9 @@ export default function MembershipPage() {
                   ) : (
                     <div className="rounded-2xl bg-blue-50/60 border border-blue-100 p-4 text-sm text-slate-700">
                       <p>
-                        A Rs. 10,000 bill will earn <span className="font-bold">{Math.floor(10000 / draft.rate).toLocaleString()} points</span>.
+                        A Rs. 10,000 bill will earn <span className="font-bold">{Math.floor(10000 / draft.rate).toLocaleString()} points</span>,
+                        worth <span className="font-bold">Rs. {(Math.floor(10000 / draft.rate) * draft.pointValue).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span> off a future bill
+                        ({((draft.pointValue / draft.rate) * 100).toFixed(2)}% back).
                         {" "}Rate changes apply to bills paid from now on — points already earned stay as they are.
                       </p>
                       {preview && members.length > 0 && (

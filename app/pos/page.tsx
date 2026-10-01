@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import axios from "axios";
+import api from "../../utils/axiosInstance";
+import { downloadReceipt } from "../billing/_components/billing";
 
 interface SparePart {
   partCode: string;
@@ -41,13 +42,16 @@ export default function PointOfSale() {
   const [customerName, setCustomerName] = useState("");
   const [search, setSearch] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+  // Counter payment: method, cash tendered (for change) or card/transfer reference.
+  const [paymentMethod, setPaymentMethod] = useState<"CASH" | "CARD" | "BANK_TRANSFER">("CASH");
+  const [tendered, setTendered] = useState("");
+  const [paymentRef, setPaymentRef] = useState("");
+  const [lastSale, setLastSale] = useState<{ invoiceId: number; invoiceNumber: string; receiptNumber: string; change: number } | null>(null);
 
   const [toast, setToast] = useState<{ show: boolean; type: "success" | "error" | "warning"; title: string; message: string }>({
     show: false, type: "success", title: "", message: ""
   });
   const toastTimer = useRef<NodeJS.Timeout | null>(null);
-
-  const getAuthHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem("jwtToken")}` } });
 
   const showToast = (type: "success" | "error" | "warning", title: string, message: string) => {
     setToast({ show: true, type, title, message });
@@ -60,9 +64,9 @@ export default function PointOfSale() {
   const fetchData = async () => {
     try {
       const [invRes, histRes, rulesRes] = await Promise.all([
-        axios.get("http://localhost:8080/api/parts", getAuthHeader()),
-        axios.get("http://localhost:8080/api/pos/history", getAuthHeader()),
-        axios.get("http://localhost:8080/api/pricing-rules/active", getAuthHeader()).catch(() => ({ data: [] }))
+        api.get("/parts"),
+        api.get("/pos/history"),
+        api.get("/pricing-rules/active").catch(() => ({ data: [] }))
       ]);
       setInventory(invRes.data);
       setHistory(histRes.data.reverse());
@@ -131,17 +135,26 @@ export default function PointOfSale() {
 
       const payload = {
         customerName: customerName.trim() || "Walk-in Customer",
-        cartItems: formattedCartItems
+        cartItems: formattedCartItems,
+        paymentMethod,
+        amountTendered: paymentMethod === "CASH" && tendered ? Number(tendered) : null,
+        paymentReference: paymentRef || null,
       };
 
-      await axios.post("http://localhost:8080/api/pos/checkout", payload, getAuthHeader());
+      const res = await api.post("/pos/checkout", payload);
+      const { invoice, payment } = res.data;
+      const change = payment?.changeGiven ?? 0;
 
-      showToast("success", "Transaction Complete", "Sale processed and logged to enterprise revenue.");
+      setLastSale({ invoiceId: invoice.invoiceId, invoiceNumber: invoice.invoiceNumber, receiptNumber: payment.receiptNumber, change });
+      showToast("success", "Transaction Complete", `Receipt ${payment.receiptNumber}${change > 0 ? ` — give change Rs. ${change.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : ""}.`);
       setCart([]);
       setCustomerName("");
+      setTendered("");
+      setPaymentRef("");
       fetchData();
     } catch (err: any) {
-      showToast("error", "Transaction Failed", "The server rejected the checkout request.");
+      const msg = typeof err?.response?.data === "string" ? err.response.data : "The server rejected the checkout request.";
+      showToast("error", "Transaction Failed", msg);
     } finally {
       setIsProcessing(false);
     }
@@ -166,7 +179,9 @@ export default function PointOfSale() {
   const filteredInventory = inventory.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.partCode.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="h-[calc(100vh-72px)] bg-slate-100 p-4 relative overflow-hidden animate-fade-in-up">
+    // Fills the screen below the two-row header on desktop (72px + 56px); on
+    // mobile the three panels stack and the page scrolls.
+    <div className="min-h-[calc(100vh-128px)] lg:h-[calc(100vh-128px)] bg-slate-100 p-4 relative lg:overflow-hidden animate-fade-in-up">
 
       <div className={`fixed top-6 right-6 z-[9999] flex items-start gap-4 p-4 min-w-[340px] max-w-md bg-white rounded-xl shadow-2xl border transition-all duration-300 ease-out ${
         toast.show ? 'translate-y-0 opacity-100' : '-translate-y-4 opacity-0 pointer-events-none'
@@ -296,13 +311,53 @@ export default function PointOfSale() {
               <span className="text-2xl font-black text-white">Rs. {netTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
             </div>
 
+            {/* PAYMENT */}
+            <div className="mb-4 space-y-2">
+              <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Payment method">
+                {([["CASH", "Cash"], ["CARD", "Card"], ["BANK_TRANSFER", "Transfer"]] as const).map(([key, label]) => (
+                  <button key={key} type="button" role="radio" aria-checked={paymentMethod === key} onClick={() => setPaymentMethod(key)}
+                    className={`py-2 rounded-lg text-xs font-black uppercase tracking-wider border ${paymentMethod === key ? "bg-white text-slate-900 border-white" : "bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-500"}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {paymentMethod === "CASH" && (
+                <div className="flex items-center gap-2">
+                  <input type="number" min={0} step="0.01" value={tendered} onChange={e => setTendered(e.target.value)} placeholder="Cash tendered" aria-label="Cash tendered"
+                    className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg outline-none placeholder-slate-500 text-sm font-bold focus:border-blue-500" />
+                  {tendered && Number(tendered) >= netTotal && cart.length > 0 && (
+                    <span className="text-xs font-black text-emerald-400 whitespace-nowrap">Change Rs. {(Number(tendered) - netTotal).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  )}
+                  {tendered && Number(tendered) < netTotal && cart.length > 0 && <span className="text-xs font-black text-red-400">Short</span>}
+                </div>
+              )}
+              {paymentMethod !== "CASH" && (
+                <input value={paymentRef} onChange={e => setPaymentRef(e.target.value)} maxLength={paymentMethod === "CARD" ? 4 : 60}
+                  placeholder={paymentMethod === "CARD" ? "Card last 4 (optional)" : "Transfer reference"} aria-label="Payment reference"
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-700 text-white rounded-lg outline-none placeholder-slate-500 text-sm font-bold focus:border-blue-500" />
+              )}
+            </div>
+
             <button
               onClick={handleCheckout}
-              disabled={cart.length === 0 || isProcessing}
+              disabled={cart.length === 0 || isProcessing || (paymentMethod === "CASH" && !!tendered && Number(tendered) < netTotal) || (paymentMethod === "BANK_TRANSFER" && paymentRef.trim().length < 4)}
               className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 disabled:text-slate-600 text-white text-sm font-black uppercase tracking-wider rounded-xl transition-all shadow-[0_0_20px_rgba(37,99,235,0.2)] disabled:shadow-none"
             >
               {isProcessing ? "Processing..." : "Checkout"}
             </button>
+
+            {lastSale && (
+              <div className="mt-3 p-3 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-between gap-2">
+                <div className="text-xs">
+                  <p className="font-black text-white">Last sale · {lastSale.receiptNumber}</p>
+                  {lastSale.change > 0 && <p className="font-bold text-emerald-400">Change: Rs. {lastSale.change.toLocaleString(undefined, { minimumFractionDigits: 2 })}</p>}
+                </div>
+                <button onClick={() => downloadReceipt(lastSale.invoiceId, lastSale.invoiceNumber).catch(() => showToast("error", "Receipt", "Couldn't download the receipt."))}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-wider bg-white text-slate-900 hover:bg-slate-200">
+                  Receipt PDF
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

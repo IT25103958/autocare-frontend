@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import axios from "axios";
+import api from "../../../utils/axiosInstance";
 import Link from "next/link";
 import { useAuth } from "../../context/AuthContext";
 
@@ -32,10 +32,9 @@ export default function TechnicianDashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      const headers = { Authorization: `Bearer ${localStorage.getItem("jwtToken")}` };
 
       // 1. Jobs assigned to this technician (server-side, by login)
-      const mineRes = await axios.get("http://localhost:8080/api/bookings/my-jobs", { headers });
+      const mineRes = await api.get("/bookings/my-jobs");
       const myJobs: ServiceBooking[] = mineRes.data;
 
       setActiveJobs(myJobs.filter(b => ["CONFIRMED", "IN_PROGRESS", "DELAYED"].includes(b.status)));
@@ -43,12 +42,12 @@ export default function TechnicianDashboard() {
         .sort((a, b) => b.bookingID - a.bookingID));
 
       // Bookings waiting for the manager to confirm (context only)
-      const allRes = await axios.get("http://localhost:8080/api/bookings", { headers }).catch(() => ({ data: [] }));
+      const allRes = await api.get("/bookings").catch(() => ({ data: [] }));
       setQueueCount((allRes.data as ServiceBooking[]).filter(b => b.status === "PENDING").length);
 
       // 2. Fetch Upcoming Roster Shifts
       {
-        const shiftRes = await axios.get("http://localhost:8080/api/roster/my", { headers });
+        const shiftRes = await api.get("/roster/my");
         const allShifts: StaffShift[] = shiftRes.data;
 
         // Filter for shifts that are SCHEDULED or CONFIRMED (ignoring completed/absent ones for the alert box)

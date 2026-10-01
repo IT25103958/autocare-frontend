@@ -30,6 +30,8 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
+  // True until the saved session has been read from localStorage.
+  isLoading: boolean;
   login: (userData: User) => void;
   logout: () => void;
   markPasswordChanged: () => void;
@@ -39,6 +41,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
@@ -46,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (storedUser) {
       setUser(JSON.parse(storedUser));
     }
+    setIsLoading(false);
   }, []);
 
   const login = (userData: User) => {
@@ -78,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, markPasswordChanged }}>
+    <AuthContext.Provider value={{ user, isLoading, login, logout, markPasswordChanged }}>
       {children}
     </AuthContext.Provider>
   );

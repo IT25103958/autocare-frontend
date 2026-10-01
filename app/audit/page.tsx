@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import axios from "axios";
+import api from "../../utils/axiosInstance";
 import { useAuth } from "../context/AuthContext";
 import { useRouter } from "next/navigation";
 
@@ -38,10 +38,7 @@ export default function AuditLogViewer() {
 
     const fetchLogs = async () => {
       try {
-        const token = localStorage.getItem("jwtToken");
-        const response = await axios.get("http://localhost:8080/api/audit", {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const response = await api.get("/audit");
         setLogs(response.data);
       } catch (error) {
         console.error("Failed to fetch audit logs:", error);
@@ -58,14 +55,9 @@ export default function AuditLogViewer() {
 
     setIsPurging(true);
     try {
-      const token = localStorage.getItem("jwtToken");
-      await axios.delete(`http://localhost:8080/api/audit/purge?days=${purgeDays}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.delete(`/audit/purge?days=${purgeDays}`);
 
-      const response = await axios.get("http://localhost:8080/api/audit", {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const response = await api.get("/audit");
       setLogs(response.data);
     } catch (error) {
       console.error("Purge failed:", error);

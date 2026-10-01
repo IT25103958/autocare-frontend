@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import axios from "axios";
+import api from "../../utils/axiosInstance";
 import { useAuth } from "../context/AuthContext";
 
 interface SupplyRequest {
@@ -39,13 +39,11 @@ export default function SupplyChainDashboard() {
   });
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
 
-  const isManager = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || user?.role === "INVENTORY_MANAGER";
-
-  const getAuthHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem("jwtToken")}` } });
+  const isManager = user?.role === "SUPER_ADMIN" || user?.role === "INVENTORY_MANAGER";
 
   const fetchOrders = async () => {
     try {
-      const res = await axios.get("http://localhost:8080/api/supply", getAuthHeader());
+      const res = await api.get("/supply");
       // Sort newest to top
       setOrders(res.data.sort((a: SupplyRequest, b: SupplyRequest) => b.id - a.id));
     } catch (err) {
@@ -68,7 +66,7 @@ export default function SupplyChainDashboard() {
     }
     setIsSubmittingAction(true);
     try {
-      await axios.put(`http://localhost:8080/api/supply/${dispatchModal.order.id}/dispatch`, { confirmedUnitPrice: parsedPrice }, getAuthHeader());
+      await api.put(`/supply/${dispatchModal.order.id}/dispatch`, { confirmedUnitPrice: parsedPrice });
       setModal({ isOpen: true, type: "success", title: "Order Dispatched", message: `Lanka Auto Care has been notified — confirmed at Rs. ${parsedPrice.toLocaleString()} / unit.` });
       setDispatchModal({ isOpen: false, order: null, confirmedPrice: "" });
       fetchOrders();
@@ -85,10 +83,9 @@ export default function SupplyChainDashboard() {
     const parsedRetailPrice = receiveModal.newRetailPrice ? parseFloat(receiveModal.newRetailPrice) : undefined;
     setIsSubmittingAction(true);
     try {
-      await axios.put(
-        `http://localhost:8080/api/supply/${receiveModal.order.id}/receive`,
-        parsedRetailPrice ? { newRetailPrice: parsedRetailPrice } : {},
-        getAuthHeader()
+      await api.put(
+        `/supply/${receiveModal.order.id}/receive`,
+        parsedRetailPrice ? { newRetailPrice: parsedRetailPrice } : {}
       );
       setModal({
         isOpen: true,

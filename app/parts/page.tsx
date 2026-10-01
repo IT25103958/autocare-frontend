@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { createPortal } from "react-dom";
-import axios, { AxiosInstance } from "axios";
+import api from "../../utils/axiosInstance";
+import { getErrorMessage as extractErrorMessage } from "../../utils/apiError";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -12,31 +13,7 @@ import InventoryOverview from "./_components/InventoryOverview";
 import StockHistoryDrawer from "./_components/StockHistoryDrawer";
 import AdjustStockDialog from "./_components/AdjustStockDialog";
 import { InventoryPart } from "./_components/inventory";
-
-// =============================================================================
-// API CLIENT
-// =============================================================================
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
-const api: AxiosInstance = axios.create({ baseURL: API_BASE_URL });
-api.interceptors.request.use((config) => {
-  if (typeof window !== "undefined") {
-    const token = window.localStorage.getItem("jwtToken");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-function extractErrorMessage(err: unknown, fallback: string): string {
-  if (axios.isAxiosError(err)) {
-    const responseData = err.response?.data;
-    if (typeof responseData === "string" && responseData.trim()) return responseData;
-    if (responseData && typeof responseData === "object" && "message" in responseData) {
-      const msg = (responseData as { message?: unknown }).message;
-      if (typeof msg === "string" && msg.trim()) return msg;
-    }
-  }
-  return fallback;
-}
+import { downloadCsv as downloadCSV } from "../billing/_components/billing";
 
 // =============================================================================
 // VALIDATION
@@ -55,6 +32,8 @@ const partSchema = z.object({
   minimumStockLevel: z.coerce.number().int("Decimals are not allowed.").min(1, "Minimum stock level must be at least 1."),
   // Restock order size suggested on the low-stock list (0 = automatic: back up to 2x the minimum).
   reorderQuantity: z.coerce.number().int("Decimals are not allowed.").min(0, "Can't be negative.").optional(),
+  // Customer warranty in months; blank = the shop default, 0 = no warranty.
+  warrantyMonths: z.string().regex(/^\d{0,3}$/, "Enter whole months.").refine(v => !v || Number(v) <= 120, "At most 120 months.").optional(),
   // Optional only when currentStock is 0 — enforced by the object-level
   // refine below. Real stock needs a real source and cost; without that it's
   // invisible to Finance forever, with no way to add the invoice later.
@@ -86,6 +65,7 @@ interface SparePart {
   currentStock: number;
   minimumStockLevel: number;
   reorderQuantity?: number | null;
+  warrantyMonths?: number | null;
   active?: boolean;
 }
 
@@ -204,19 +184,6 @@ function SearchInput({ value, onChange, placeholder, ariaLabel, className = "w-6
   );
 }
 
-function downloadCSV(filename: string, headers: string[], rows: (string | number)[][]) {
-  const csv = [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 function exportPartsCSV(rows: SparePart[]) {
   const headers = ["Part Code", "Name", "Category", "Unit Price", "Cost Price", "Stock", "Min Level", "Status"];
   const body = rows.map((p) => [
@@ -278,9 +245,9 @@ export default function PartsInventoryPage() {
   const fetchAll = useCallback(async (isManualRefresh = false) => {
     if (isManualRefresh) setRefreshing(true); else setLoading(true);
 
-    const calls: Promise<any>[] = [api.get<SparePart[]>("/api/parts")];
+    const calls: Promise<any>[] = [api.get<SparePart[]>("/parts")];
     // Only active suppliers approved for spare parts can be ordered from.
-    if (isManager) calls.push(api.get<SupplierOption[]>("/api/suppliers/options", { params: { category: "SPARE_PARTS" } }));
+    if (isManager) calls.push(api.get<SupplierOption[]>("/suppliers/options", { params: { category: "SPARE_PARTS" } }));
 
     const results = await Promise.allSettled(calls);
     const errors: FetchErrors = {};
@@ -314,10 +281,11 @@ export default function PartsInventoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, isManager]);
 
-  const onSubmit = async (data: PartFormOutput) => {
+  const onSubmit = async (form: PartFormOutput) => {
+    const data = { ...form, warrantyMonths: form.warrantyMonths ? Number(form.warrantyMonths) : null };
     try {
       if (editingPartId) {
-        await api.put(`/api/parts/${editingPartId}`, data);
+        await api.put(`/parts/${editingPartId}`, data);
         pushToast("success", "Component details updated.");
         setEditingPartId(null);
       } else if (data.initialSupplierName && data.costPerUnit) {
@@ -325,10 +293,10 @@ export default function PartsInventoryPage() {
         // and at what cost — this is also how any part with real starting
         // stock generates its invoice to Finance (see the schema refine).
         const { initialSupplierName, costPerUnit, ...part } = data;
-        await api.post("/api/parts/register-with-invoice", { part, supplierId: Number(initialSupplierName), costPerUnit });
+        await api.post("/parts/register-with-invoice", { part, supplierId: Number(initialSupplierName), costPerUnit });
         pushToast("success", `Part registered — an invoice for ${data.currentStock} units was sent to Finance.`);
       } else {
-        await api.post("/api/parts", data);
+        await api.post("/parts", data);
         pushToast("success", "New spare part added.");
       }
       reset();
@@ -349,6 +317,7 @@ export default function PartsInventoryPage() {
     setValue("currentStock", part.currentStock);
     setValue("minimumStockLevel", part.minimumStockLevel);
     setValue("reorderQuantity", part.reorderQuantity ?? 0);
+    setValue("warrantyMonths", part.warrantyMonths == null ? "" : String(part.warrantyMonths));
     setValue("isEdit", true);
     // Clear any leftover values in the (now-hidden) initial-purchase fields
     // so they can't resurface unexpectedly if the user cancels this edit and
@@ -361,7 +330,7 @@ export default function PartsInventoryPage() {
   const executeDelete = useCallback(async (targetId: number) => {
     setConfirmState((prev) => ({ ...prev, pending: true }));
     try {
-      await api.delete(`/api/parts/${targetId}`);
+      await api.delete(`/parts/${targetId}`);
       pushToast("success", "Component removed from inventory.");
       fetchAll();
     } catch (err) {
@@ -376,7 +345,7 @@ export default function PartsInventoryPage() {
     if (!targetId) return;
     const discontinue = part.active !== false;
     try {
-      await api.put(`/api/parts/${targetId}/active`, null, { params: { value: !discontinue } });
+      await api.put(`/parts/${targetId}/active`, null, { params: { value: !discontinue } });
       pushToast("success", discontinue ? `${part.name} discontinued — it can no longer be reordered.` : `${part.name} is active again.`);
       fetchAll();
     } catch (err) {
@@ -416,7 +385,7 @@ export default function PartsInventoryPage() {
         partCode: rmaModal.part.partCode, quantity: rmaData.quantity,
         reason: rmaData.reason, supplierId: Number(rmaData.supplierId),
       };
-      await api.post("/api/rma/add", payload);
+      await api.post("/rma/add", payload);
       pushToast("success", "RMA logged — supplier notified of the return.");
       setRmaModal({ isOpen: false, part: null });
       setRmaData({ quantity: 1, reason: "", supplierId: "" });
@@ -438,7 +407,7 @@ export default function PartsInventoryPage() {
         quantityRequested: supplyData.quantity,
         agreedUnitPrice: supplyData.agreedUnitPrice,
       };
-      await api.post("/api/supply/order", payload);
+      await api.post("/supply/order", payload);
       pushToast("success", "Purchase order sent — awaiting supplier fulfillment.");
       setSupplyModal({ isOpen: false, part: null });
       setSupplyData({ quantity: 10, supplierId: "", agreedUnitPrice: 0 });
@@ -557,6 +526,13 @@ export default function PartsInventoryPage() {
                       className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 outline-none ${errors.reorderQuantity ? "border-red-400" : "border-slate-200"}`} />
                     <p className="mt-1 text-[11px] text-slate-400 font-medium">Suggested order size when stock runs low. Automatic tops up to twice the alert level.</p>
                     {errors.reorderQuantity && <p className="mt-1 text-xs font-bold text-red-500">{errors.reorderQuantity.message}</p>}
+                  </div>
+                  <div>
+                    <label htmlFor="warrantyMonths" className="block text-sm font-bold text-slate-700 mb-1.5">Warranty (months) <span className="font-medium text-slate-400">(optional)</span></label>
+                    <input id="warrantyMonths" {...register("warrantyMonths")} inputMode="numeric" maxLength={3} placeholder="Blank = shop default"
+                      className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 outline-none ${errors.warrantyMonths ? "border-red-400" : "border-slate-200"}`} />
+                    <p className="mt-1 text-[11px] text-slate-400 font-medium">Customer warranty from the date of sale. 0 means sold without warranty.</p>
+                    {errors.warrantyMonths && <p className="mt-1 text-xs font-bold text-red-500">{errors.warrantyMonths.message}</p>}
                   </div>
 
                   {!editingPartId && (

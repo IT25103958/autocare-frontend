@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import axios from "axios";
+import { publicApi } from "../../utils/axiosInstance";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -46,7 +46,7 @@ export default function RegisterPage() {
         role: "CUSTOMER"
       };
 
-      await axios.post("http://localhost:8080/api/auth/register", payload);
+      await publicApi.post("/auth/register", payload);
 
       setServerMessage({ type: "success", text: "Account created successfully! Redirecting..." });
 

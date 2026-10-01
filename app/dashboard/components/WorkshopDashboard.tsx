@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import axios from "axios";
+import api from "../../../utils/axiosInstance";
 import Link from "next/link";
 import { useAuth } from "../../context/AuthContext";
 
@@ -21,9 +21,7 @@ export default function WorkshopDashboard() {
   useEffect(() => {
     const fetchLiveStats = async () => {
       try {
-        const res = await axios.get("http://localhost:8080/api/bookings", {
-          headers: { Authorization: `Bearer ${localStorage.getItem("jwtToken")}` }
-        });
+        const res = await api.get("/bookings");
         setBookings(res.data);
       } catch (error) {
         console.error("Failed to fetch workshop stats");

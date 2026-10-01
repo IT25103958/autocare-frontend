@@ -2,42 +2,13 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import axios, { AxiosInstance } from "axios";
+import api from "../../utils/axiosInstance";
+import { getErrorMessage as extractErrorMessage } from "../../utils/apiError";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "../context/AuthContext";
-
-// =============================================================================
-// API CLIENT
-// Your project already has utils/axiosInstance.ts — once you share what it
-// exports, this page should import that shared client instead of building its
-// own. Kept self-contained here for now so nothing breaks on an unverified
-// import path or interceptor contract.
-// =============================================================================
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
-
-const api: AxiosInstance = axios.create({ baseURL: API_BASE_URL });
-
-api.interceptors.request.use((config) => {
-  if (typeof window !== "undefined") {
-    const token = window.localStorage.getItem("jwtToken");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-function extractErrorMessage(err: unknown, fallback: string): string {
-  if (axios.isAxiosError(err)) {
-    const responseData = err.response?.data;
-    if (typeof responseData === "string" && responseData.trim()) return responseData;
-    if (responseData && typeof responseData === "object" && "message" in responseData) {
-      const msg = (responseData as { message?: unknown }).message;
-      if (typeof msg === "string" && msg.trim()) return msg;
-    }
-  }
-  return fallback;
-}
+import { downloadCsv as downloadCSV } from "../billing/_components/billing";
 
 // =============================================================================
 // VALIDATION
@@ -312,19 +283,6 @@ function SearchInput({ value, onChange, placeholder, ariaLabel, className = "w-5
   );
 }
 
-function downloadCSV(filename: string, headers: string[], rows: (string | number)[][]) {
-  const csv = [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 function exportPayablesCSV(rows: AccountsPayable[]) {
   const headers = ["Invoice ID", "Supplier", "Category", "Due Date", "Invoice Total", "Amount Paid", "Balance", "Status"];
   const body = rows.map((inv) => {
@@ -433,12 +391,12 @@ export default function PayablesDashboard() {
     if (isManualRefresh) setRefreshing(true); else setLoading(true);
 
     const [payRes, posRes, bookRes, rmaRes, salaryRes, handoverRes] = await Promise.allSettled([
-      api.get<AccountsPayable[]>("/api/payables"),
-      api.get<RetailTransaction[]>("/api/pos/history"),
-      api.get<ServiceBooking[]>("/api/bookings"),
-      api.get<RmaRefund[]>("/api/rma"),
-      api.get<SalaryRecord[]>("/api/salary"),
-      api.get<ShiftHandover[]>("/api/pumps/handovers"),
+      api.get<AccountsPayable[]>("/payables"),
+      api.get<RetailTransaction[]>("/pos/history"),
+      api.get<ServiceBooking[]>("/bookings"),
+      api.get<RmaRefund[]>("/rma"),
+      api.get<SalaryRecord[]>("/salary"),
+      api.get<ShiftHandover[]>("/pumps/handovers"),
     ]);
 
     const errors: FetchErrors = {};
@@ -480,7 +438,7 @@ export default function PayablesDashboard() {
   const onSubmit = async (data: InvoiceFormOutput) => {
     try {
       const payload = { ...data, totalInvoiceAmount: roundMoney(data.totalInvoiceAmount), amountPaid: 0.0 };
-      await api.post("/api/payables/add", payload);
+      await api.post("/payables/add", payload);
       pushToast("success", `Invoice for ${data.supplierName} registered to the ledger.`);
       reset();
       setIsFormOpen(false);
@@ -508,7 +466,7 @@ export default function PayablesDashboard() {
   const submitPayment = useCallback(async (invoiceId: number, amountToPay: number, isFullSettlement: boolean) => {
     setPendingPaymentIds((prev) => new Set(prev).add(invoiceId));
     try {
-      await api.put(`/api/payables/${invoiceId}/pay`, null, { params: { paymentAmount: amountToPay } });
+      await api.put(`/payables/${invoiceId}/pay`, null, { params: { paymentAmount: amountToPay } });
       setPaymentInputs((prev) => ({ ...prev, [invoiceId]: "" }));
       pushToast("success", `Disbursed ${formatLKR(amountToPay)}.${isFullSettlement ? " Invoice fully settled." : " Balance updated."}`);
       await fetchAll();
@@ -575,15 +533,15 @@ export default function PayablesDashboard() {
         if (!invoice) { pushToast("error", "Selected invoice could not be found."); return; }
         const { balance } = getInvoiceStatus(invoice);
         const offsetAmount = roundMoney(Math.min(balance, rma.totalValue));
-        await api.put(`/api/payables/${targetInvoiceId}/pay`, null, { params: { paymentAmount: offsetAmount } });
-        await api.put(`/api/rma/${rma.id}/settle`, {});
+        await api.put(`/payables/${targetInvoiceId}/pay`, null, { params: { paymentAmount: offsetAmount } });
+        await api.put(`/rma/${rma.id}/settle`, {});
         const leftover = roundMoney(rma.totalValue - offsetAmount);
         pushToast("success",
           `Offset ${formatLKR(offsetAmount)} against Invoice #${targetInvoiceId}.` +
           (leftover > MONEY_EPSILON ? ` ${formatLKR(leftover)} of credit exceeded the balance and was not applied.` : "")
         );
       } else {
-        await api.put(`/api/rma/${rma.id}/settle`, {});
+        await api.put(`/rma/${rma.id}/settle`, {});
         pushToast("success", `RMA-${rma.id} marked as a direct deposit of ${formatLKR(rma.totalValue)}.`);
       }
       setSettlementModal({ isOpen: false, rma: null, method: "OFFSET", targetInvoiceId: null });
@@ -601,7 +559,7 @@ export default function PayablesDashboard() {
   const executeDelete = useCallback(async (invoiceId: number) => {
     setConfirmState((prev) => ({ ...prev, pending: true }));
     try {
-      await api.delete(`/api/payables/${invoiceId}`);
+      await api.delete(`/payables/${invoiceId}`);
       pushToast("success", "Invoice voided and removed from the ledger.");
       await fetchAll();
     } catch (err) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import axios from "axios";
+import api from "../../utils/axiosInstance";
 import { useAuth } from "../context/AuthContext";
 
 interface UserAccount {
@@ -32,18 +32,16 @@ export default function UserManagementDashboard() {
     type: "error"
   });
 
-  const getAuthHeader = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem("jwtToken")}` } });
-
   const fetchUsers = async () => {
     try {
-      const res = await axios.get("http://localhost:8080/api/auth/all", getAuthHeader());
+      const res = await api.get("/auth/all");
       setUsers(res.data);
     } catch (err) {
       console.error("Failed to fetch users", err);
     }
     // Company names for supplier portal logins.
     try {
-      const sup = await axios.get("http://localhost:8080/api/suppliers/directory", getAuthHeader());
+      const sup = await api.get("/suppliers/directory");
       setSuppliers(new Map((sup.data as SupplierEntry[]).map((x) => [x.id, x])));
     } catch {
       setSuppliers(new Map());
@@ -57,7 +55,7 @@ export default function UserManagementDashboard() {
 
   const handleRoleChange = async (userId: number, newRole: string) => {
     try {
-      await axios.put(`http://localhost:8080/api/auth/${userId}/role?role=${newRole}`, {}, getAuthHeader());
+      await api.put(`/auth/${userId}/role?role=${newRole}`, {});
       fetchUsers();
       setAlertModal({ isOpen: true, type: "success", title: "Access Updated", message: "User privileges have been successfully modified." });
     } catch (err: any) {
@@ -70,7 +68,7 @@ export default function UserManagementDashboard() {
   const handleToggleActive = async (u: UserAccount) => {
     const nextActive = u.active === false;
     try {
-      await axios.put(`http://localhost:8080/api/auth/${u.id}/active?active=${nextActive}`, {}, getAuthHeader());
+      await api.put(`/auth/${u.id}/active?active=${nextActive}`, {});
       fetchUsers();
       setAlertModal({ isOpen: true, type: "success", title: nextActive ? "Account Reactivated" : "Account Deactivated",
         message: nextActive ? `${u.username} can sign in again.` : `${u.username} can no longer sign in, and any open session has ended.` });
@@ -83,7 +81,7 @@ export default function UserManagementDashboard() {
     if (!window.confirm(`Are you sure you want to permanently delete the account for ${username}?`)) return;
 
     try {
-      await axios.delete(`http://localhost:8080/api/auth/${userId}`, getAuthHeader());
+      await api.delete(`/auth/${userId}`);
       fetchUsers();
       setAlertModal({ isOpen: true, type: "success", title: "Account Deleted", message: "The user account has been permanently removed from the system." });
     } catch (err: any) {

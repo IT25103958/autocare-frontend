@@ -2,39 +2,14 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import axios, { AxiosInstance } from "axios";
+import api from "../../utils/axiosInstance";
+import { getErrorMessage as extractErrorMessage } from "../../utils/apiError";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "../context/AuthContext";
 import { useRouter } from "next/navigation";
-
-// =============================================================================
-// API CLIENT — see the note in payables/page.tsx: this stays self-contained
-// until utils/axiosInstance.ts's actual contract is confirmed, rather than
-// guessing at an import path.
-// =============================================================================
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080";
-const api: AxiosInstance = axios.create({ baseURL: API_BASE_URL });
-api.interceptors.request.use((config) => {
-  if (typeof window !== "undefined") {
-    const token = window.localStorage.getItem("jwtToken");
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-function extractErrorMessage(err: unknown, fallback: string): string {
-  if (axios.isAxiosError(err)) {
-    const responseData = err.response?.data;
-    if (typeof responseData === "string" && responseData.trim()) return responseData;
-    if (responseData && typeof responseData === "object" && "message" in responseData) {
-      const msg = (responseData as { message?: unknown }).message;
-      if (typeof msg === "string" && msg.trim()) return msg;
-    }
-  }
-  return fallback;
-}
+import { downloadCsv as downloadCSV } from "../billing/_components/billing";
 
 const MANAGEMENT_ROLES = ["ACCOUNTS_FINANCE_OFFICER", "SUPER_ADMIN", "SYSTEM_ADMIN", "EXECUTIVE_OWNER"];
 
@@ -202,19 +177,6 @@ function SearchInput({ value, onChange, placeholder, ariaLabel, className = "w-5
   );
 }
 
-function downloadCSV(filename: string, headers: string[], rows: (string | number)[][]) {
-  const csv = [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
 function exportSalariesCSV(rows: TechnicianSalary[]) {
   const headers = ["Salary ID", "Employee", "Email", "Period", "Hours", "Rate", "Net Salary"];
   const body = rows.map((sal) => [sal.salaryId, sal.technicianName, sal.technicianEmail, sal.month || sal.payrollMonth || "", sal.hoursWorked || 0, sal.hourlyRate || 0, sal.totalSalary ?? sal.netSalary ?? 0]);
@@ -304,8 +266,8 @@ export default function SalaryDashboard() {
     if (isManualRefresh) setRefreshing(true); else setLoading(true);
 
     const [salaryRes, userRes] = await Promise.allSettled([
-      api.get<TechnicianSalary[]>("/api/salary"),
-      api.get<UserAccount[]>("/api/auth/all"),
+      api.get<TechnicianSalary[]>("/salary"),
+      api.get<UserAccount[]>("/auth/all"),
     ]);
 
     const errors: FetchErrors = {};
@@ -359,7 +321,7 @@ export default function SalaryDashboard() {
         try {
           // Actual hours from roster clock-in/out (completed shifts only), so
           // absences and short shifts are no longer paid as a flat 8 hours.
-          const res = await api.get<AttendanceSummary>("/api/roster/hours", {
+          const res = await api.get<AttendanceSummary>("/roster/hours", {
             params: { username: employee.username, month: selectedMonth },
           });
           setAttendance(res.data);
@@ -390,7 +352,7 @@ export default function SalaryDashboard() {
         hourlyRate: data.hourlyRate,
         totalSalary: netSalary,
       };
-      await api.post("/api/salary/process", payload);
+      await api.post("/salary/process", payload);
       pushToast("success", `Payroll processed for ${data.technicianName} — ${formatLKR(netSalary)} authorized.`);
       reset();
       setSuggestedRate(null);
@@ -425,7 +387,7 @@ export default function SalaryDashboard() {
   const handleGeneratePdf = async (salaryId: number) => {
     setIsGeneratingPdf(salaryId);
     try {
-      const response = await api.get(`/api/salary/${salaryId}/payslip`, { responseType: "blob" });
+      const response = await api.get(`/salary/${salaryId}/payslip`, { responseType: "blob" });
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
@@ -444,7 +406,7 @@ export default function SalaryDashboard() {
   const handleSendEmail = async (salaryId: number) => {
     setIsSendingEmail(salaryId);
     try {
-      await api.post(`/api/salary/${salaryId}/send-email`, {});
+      await api.post(`/salary/${salaryId}/send-email`, {});
       pushToast("success", "Payslip dispatched to the employee.");
     } catch (err) {
       pushToast("error", extractErrorMessage(err, "Email dispatch failed. Check the backend mail configuration."));

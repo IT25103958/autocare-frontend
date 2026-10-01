@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import axios from "axios";
+import api from "../../utils/axiosInstance";
 import { useAuth } from "../context/AuthContext";
 import Link from "next/link";
 
@@ -27,13 +27,9 @@ export default function MasterRMADashboard() {
   const isFinance = user?.role === "ACCOUNTS_FINANCE_OFFICER" || user?.role === "SUPER_ADMIN";
   const isInventory = user?.role === "INVENTORY_MANAGER";
 
-  const getAuthHeader = () => ({
-    headers: { Authorization: `Bearer ${localStorage.getItem("jwtToken")}` }
-  });
-
   const fetchRmas = async () => {
     try {
-      const response = await axios.get("http://localhost:8080/api/rma", getAuthHeader());
+      const response = await api.get("/rma");
       // Suppliers only receive their own company's returns from the server.
       const fetchedRmas = response.data;
 
@@ -50,7 +46,7 @@ export default function MasterRMADashboard() {
   const handleProcessRMA = async (id: number, status: "APPROVED_REPLACEMENT" | "APPROVED_REFUND" | "REJECTED") => {
     setServerMessage({ type: "", text: "" });
     try {
-      await axios.put(`http://localhost:8080/api/rma/${id}/process?status=${status}`, {}, getAuthHeader());
+      await api.put(`/rma/${id}/process?status=${status}`, {});
       setServerMessage({ type: "success", text: `RMA #${id} successfully updated to ${status.replace('_', ' ')}.` });
       fetchRmas();
       setTimeout(() => setServerMessage({ type: "", text: "" }), 3000);
@@ -62,7 +58,7 @@ export default function MasterRMADashboard() {
   const handleReceiveReplacement = async (id: number) => {
     setServerMessage({ type: "", text: "" });
     try {
-      await axios.put(`http://localhost:8080/api/rma/${id}/receive-replacement`, {}, getAuthHeader());
+      await api.put(`/rma/${id}/receive-replacement`, {});
       setServerMessage({ type: "success", text: "Physical replacement verified. The live catalog stock has been incremented." });
       fetchRmas();
       setTimeout(() => setServerMessage({ type: "", text: "" }), 4000);

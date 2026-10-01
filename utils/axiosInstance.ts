@@ -1,8 +1,17 @@
 import axios from 'axios';
 
-// Create a custom instance of Axios
+// The one place the API address lives. Set NEXT_PUBLIC_API_BASE_URL when the
+// backend isn't on localhost (e.g. once deployed).
+export const API_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080'}/api`;
+
+// Signed-in requests: attaches the token and handles account-level responses.
 const api = axios.create({
-    baseURL: 'http://localhost:8080/api',
+    baseURL: API_URL,
+});
+
+// Signed-out pages (login, register, password reset): same address, never sends a token.
+export const publicApi = axios.create({
+    baseURL: API_URL,
 });
 
 // Add a request interceptor
