@@ -7,6 +7,7 @@ import Link from "next/link";
 import CustomerUpcoming from "../../bookings/_components/CustomerUpcoming";
 import CustomerBills from "../../billing/_components/CustomerBills";
 import CustomerFuelPurchases from "../../billing/_components/CustomerFuelPurchases";
+import CustomerFuelPass from "../../fuel/_components/CustomerFuelPass";
 import PayOnlineDialog from "../../billing/_components/PayOnlineDialog";
 import { Invoice } from "../../billing/_components/billing";
 import { Booking, STATUS_LABEL, rupees } from "../../bookings/_components/booking";
@@ -221,6 +222,8 @@ export default function CustomerDashboard() {
             </div>
 
             <CustomerBills refreshKey={billsKey} onPaid={loadBookings} />
+
+            <CustomerFuelPass />
 
             <CustomerFuelPurchases />
 

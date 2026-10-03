@@ -46,8 +46,16 @@ body {
 .nav-fade-up { animation: nav-fade-up 320ms cubic-bezier(0.16, 1, 0.3, 1) both; }
 .nav-fade { animation: nav-fade 200ms ease-out both; }
 
+/* --- Fuel pass scanner: the sweeping line inside the camera frame --- */
+@keyframes qr-scan {
+  0%, 100% { top: 6%; }
+  50% { top: 94%; }
+}
+.qr-scan-line { animation: qr-scan 2.4s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .nav-pop, .nav-slide-in, .nav-fade-up, .nav-fade { animation: none; }
+  .qr-scan-line { animation: none; top: 50%; }
 }
 
 /* --- Home page animations --- */

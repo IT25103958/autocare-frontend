@@ -2,21 +2,21 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import api from "../../utils/axiosInstance";
 import SiteFooter from "./SiteFooter";
 
 // ---------------------------------------------------------------------------
 // Navigation model. Each role gets sections (menus) of related pages. The header
-// shows them two ways: every page as a quick link on row 2 (overflow goes into
-// "More"), and grouped in the "All Sections" panel / mobile menu.
+// shows one entry per section on row 2, each opening a dropdown of its pages;
+// the mobile menu shows the same sections as an accordion.
 // ---------------------------------------------------------------------------
 
 type IconName =
   | "dashboard" | "pos" | "billing" | "payables" | "payroll" | "suppliers" | "fuel" | "tank" | "truck"
   | "rma" | "ticket" | "roster" | "payslip" | "users" | "shield" | "wrench" | "box" | "customers"
-  | "star" | "garage" | "support" | "calendar" | "finance" | "briefcase" | "settings";
+  | "star" | "garage" | "support" | "calendar" | "finance" | "briefcase" | "settings" | "qr";
 
 interface NavLink { name: string; href: string; icon: IconName; hint: string }
 type NavItem =
@@ -34,6 +34,7 @@ const L = {
   tanks: { name: "Wet Stock", href: "/tanks", icon: "tank", hint: "Tank levels, dips & prices" },
   fuelDeliveries: { name: "Fuel Deliveries", href: "/fuel-deliveries", icon: "truck", hint: "Fuel orders & receipts" },
   pumpSales: { name: "Pump Sales", href: "/fuel", icon: "fuel", hint: "Pumps, sales & shifts" },
+  fuelPasses: { name: "Fuel Passes", href: "/fuel-passes", icon: "qr", hint: "QR passes & weekly quotas" },
   jobCards: { name: "Job Cards", href: "/bookings", icon: "wrench", hint: "Bookings & workshop jobs" },
   parts: { name: "Parts Catalog", href: "/parts", icon: "box", hint: "Stock, reorders & history" },
   deliveries: { name: "Deliveries", href: "/deliveries", icon: "truck", hint: "Parts purchase orders" },
@@ -66,7 +67,7 @@ function navFor(role: string, supplierCategories: string[]): NavItem[] {
       return [
         dash,
         menu("Sales & Finance", "finance", [L.pos, L.billing, L.payables, L.expenses, L.payroll, L.reports, L.suppliers]),
-        menu("Operations", "wrench", [L.jobCards, L.pumpSales, L.tanks, L.fuelDeliveries]),
+        menu("Operations", "wrench", [L.jobCards, L.pumpSales, L.fuelPasses, L.tanks, L.fuelDeliveries]),
         menu("Inventory", "box", [L.parts, L.deliveries, L.rma, L.warranty]),
         menu("Customers", "customers", [L.customers, L.membership, L.tickets]),
         menu("Admin", "settings", [L.roster, L.users, L.audit]),
@@ -91,7 +92,7 @@ function navFor(role: string, supplierCategories: string[]): NavItem[] {
     case "FUEL_STATION_SUPERVISOR":
       return [
         dash,
-        menu("Fuel Station", "fuel", [L.pumpSales, L.tanks, L.fuelDeliveries, named(L.suppliers, "Fuel Suppliers", "Fuel supplier records")]),
+        menu("Fuel Station", "fuel", [L.pumpSales, L.fuelPasses, L.tanks, L.fuelDeliveries, named(L.suppliers, "Fuel Suppliers", "Fuel supplier records")]),
         link(named(L.roster, "Forecourt Roster", "Attendant shifts, pumps & leave")),
         link(L.tickets),
         myWork(L.myPayslips),
@@ -125,9 +126,42 @@ function navFor(role: string, supplierCategories: string[]): NavItem[] {
   }
 }
 
+// The pages each role opens most, shown as buttons at the right of the bar.
+// The first one is the role's main action and gets the strongest highlight.
+function quickFor(role: string): NavLink[] {
+  switch (role) {
+    case "SUPER_ADMIN":
+    case "SYSTEM_ADMIN":
+      return [named(L.jobCards, "Job Cards"), named(L.billing, "Billing"), named(L.users, "Users")];
+    case "EXECUTIVE_OWNER":
+      return [named(L.reports, "Reports"), named(L.billing, "Billing"), named(L.jobCards, "Job Cards")];
+    case "ACCOUNTS_FINANCE_OFFICER":
+      return [named(L.billing, "Collect Payment"), named(L.expenses, "Log Expense"), named(L.reports, "Reports")];
+    case "SERVICE_CENTER_MANAGER":
+      return [named(L.jobCards, "Job Cards"), named(L.roster, "Technician Roster")];
+    case "TECHNICIAN":
+      return [named(L.jobCards, "My Jobs"), named(L.myShifts, "My Shifts")];
+    case "FUEL_STATION_SUPERVISOR":
+      return [named(L.pumpSales, "Pump Sales"), named(L.tanks, "Wet Stock"), named(L.fuelDeliveries, "Fuel Orders")];
+    case "FUEL_ATTENDANT":
+      return [named(L.pumpSales, "Record Sale"), named(L.myShifts, "My Shifts")];
+    case "INVENTORY_MANAGER":
+      return [named(L.pos, "New Sale"), named(L.parts, "Parts Catalog"), named(L.deliveries, "Deliveries")];
+    case "CUSTOMER_RELATIONS_OFFICER":
+      return [named(L.tickets, "Support Tickets"), named(L.customers, "Customers")];
+    case "CUSTOMER":
+      return [
+        { name: "Book a Service", href: "/customers/book", icon: "calendar", hint: "New appointment" },
+        { name: "My Garage", href: "/customers/dashboard", icon: "garage", hint: "Vehicles, bills & bookings" },
+      ];
+    default:
+      return [];
+  }
+}
+
 const linksOf = (item: NavItem) => (item.kind === "link" ? [item.link] : item.links);
 
-// Every page once (row 2 quick links and search), with the section it belongs to.
+// Every page once (for the search box), with the section it belongs to.
 function flatten(items: NavItem[]) {
   const seen = new Set<string>();
   const out: (NavLink & { section: string })[] = [];
@@ -161,6 +195,7 @@ const initials = (name: string) => {
 // ---------------------------------------------------------------------------
 
 const ICONS: Record<string, string> = {
+  qr: "M4 8V5a1 1 0 011-1h3M4 16v3a1 1 0 001 1h3m8-16h3a1 1 0 011 1v3m0 8v3a1 1 0 01-1 1h-3M8 8h3v3H8V8zm5 5h3v3h-3v-3zm-5 1h2m4-6h2",
   dashboard: "M4 5a1 1 0 011-1h5a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm9 0a1 1 0 011-1h5a1 1 0 011 1v3a1 1 0 01-1 1h-5a1 1 0 01-1-1V5zm0 7a1 1 0 011-1h5a1 1 0 011 1v7a1 1 0 01-1 1h-5a1 1 0 01-1-1v-7zm-9 2a1 1 0 011-1h5a1 1 0 011 1v5a1 1 0 01-1 1H5a1 1 0 01-1-1v-5z",
   pos: "M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.3 2.3c-.6.6-.2 1.7.7 1.7H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z",
   billing: "M9 14l2 2 4-4M7 3h10a2 2 0 012 2v16l-3-2-2 2-2-2-2 2-2-2-3 2V5a2 2 0 012-2z",
@@ -371,146 +406,126 @@ function SignOutButton({ onClick }: { onClick: () => void }) {
 // Row 2: "All Sections" panel + quick links with measured "More" overflow
 // ---------------------------------------------------------------------------
 
-function AllSectionsPanel({ items, current, onPick }: { items: NavItem[]; current?: string; onPick: () => void }) {
-  const general = items.filter(i => i.kind === "link").map(i => (i as { link: NavLink }).link);
-  const sections = [
-    ...(general.length ? [{ title: "General", links: general }] : []),
-    ...items.filter(i => i.kind === "menu").map(i => ({ title: (i as { title: string }).title, links: (i as { links: NavLink[] }).links })),
-  ];
-  return (
-    <div className="absolute left-0 top-full pt-2 z-[70]">
-      <div className="nav-pop rounded-2xl bg-white border border-slate-200 shadow-2xl shadow-slate-900/10 p-5 w-[min(92vw,56rem)]">
-        <div className="grid gap-x-8 gap-y-6" style={{ gridTemplateColumns: `repeat(${Math.min(sections.length, 3)}, minmax(0, 1fr))` }}>
-          {sections.map((s, si) => (
-            <div key={s.title} className="nav-fade-up" style={{ animationDelay: `${si * 40}ms` }}>
-              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400 mb-2">{s.title}</p>
-              <ul className="space-y-0.5">
-                {s.links.map(l => {
-                  const active = l.href === current;
-                  return (
-                    <li key={l.href + l.name}>
-                      <Link href={l.href} onClick={onPick} aria-current={active ? "page" : undefined}
-                        className={`group flex items-center gap-3 rounded-xl px-2.5 py-2 transition-colors ${active ? "bg-blue-50" : "hover:bg-slate-50"}`}>
-                        <span className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-colors ${active ? "bg-blue-700 text-white" : "bg-slate-100 text-slate-600 group-hover:bg-slate-900 group-hover:text-white"}`}>
-                          <Icon name={l.icon} className="w-[18px] h-[18px]" />
-                        </span>
-                        <span className="min-w-0">
-                          <span className={`block text-sm font-semibold ${active ? "text-blue-700" : "text-slate-900"}`}>{l.name}</span>
-                          <span className="block text-xs text-slate-500 truncate">{l.hint}</span>
-                        </span>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CategoryRow({ items, pages, current }: { items: NavItem[]; pages: (NavLink & { section: string })[]; current?: string }) {
-  const [panel, setPanel] = useState<"all" | "more" | null>(null);
-  const [visible, setVisible] = useState(pages.length);
+// Row 2 of the header: one bold entry per section. A section opens its pages
+// in a dropdown when the pointer is over it (or on click / keyboard focus), so
+// every page is one hover away and nothing overflows the bar.
+function CategoryRow({ items, quick, current }: { items: NavItem[]; quick: NavLink[]; current?: string }) {
+  const [open, setOpen] = useState<string | null>(null);
+  // How far the open panel is nudged left so it stays inside the window.
+  const [shift, setShift] = useState(0);
   const rowRef = useRef<HTMLDivElement>(null);
-  const linksRef = useRef<HTMLDivElement>(null);
-  const measureRef = useRef<HTMLDivElement>(null);
-  const pathname = usePathname();
-  const close = useMemo(() => () => setPanel(null), []);
-  useDismiss(panel !== null, close, rowRef);
-  useEffect(() => { setPanel(null); }, [pathname]);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const close = useMemo(() => () => setOpen(null), []);
+  useDismiss(open !== null, close, rowRef);
+  useEffect(() => () => { if (closeTimer.current) clearTimeout(closeTimer.current); }, []);
 
-  // Show as many quick links as fit; the rest go into "More". Measured from a
-  // hidden copy so the visible row never overlaps or wraps.
-  useLayoutEffect(() => {
-    const container = linksRef.current;
-    const measure = measureRef.current;
-    if (!container || !measure) return;
-    const MORE_WIDTH = 96;
-    const compute = () => {
-      const widths = Array.from(measure.children).map(c => (c as HTMLElement).offsetWidth);
-      const available = container.clientWidth;
-      const total = widths.reduce((a, b) => a + b, 0);
-      if (total <= available) { setVisible(widths.length); return; }
-      let used = 0, count = 0;
-      for (const w of widths) {
-        if (used + w > available - MORE_WIDTH) break;
-        used += w;
-        count++;
-      }
-      setVisible(count);
-    };
-    compute();
-    const ro = new ResizeObserver(compute);
-    ro.observe(container);
-    return () => ro.disconnect();
-  }, [pages]);
+  // A short delay before closing, so moving from the label to the panel (or
+  // brushing past a neighbour) doesn't snap the menu shut.
+  // The panel opens under its section, left edges aligned. If that would run past
+  // the right edge of the window it is moved left just enough to fit — never so far
+  // that it leaves the left edge instead.
+  const show = (title: string, anchor: HTMLElement, panelWidth: number) => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    const MARGIN = 16;
+    const left = anchor.getBoundingClientRect().left;
+    const overflow = left + panelWidth - (document.documentElement.clientWidth - MARGIN);
+    setShift(overflow > 0 ? -Math.min(overflow, Math.max(0, left - MARGIN)) : 0);
+    setOpen(title);
+  };
+  const hideSoon = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => setOpen(null), 180);
+  };
 
-  const shown = pages.slice(0, visible);
-  const overflow = pages.slice(visible);
-  const linkClass = (active: boolean) =>
-    `relative shrink-0 px-3.5 py-2 text-[15px] whitespace-nowrap transition-colors ${active ? "text-blue-700 font-semibold" : "text-slate-700 hover:text-slate-950"}`;
+  const itemClass = (active: boolean, expanded = false) =>
+    `relative flex items-center gap-2 h-11 px-4 rounded-full text-[15px] font-bold whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+      expanded ? "bg-slate-900 text-white" : active ? "bg-blue-50 text-blue-700" : "text-slate-800 hover:bg-slate-100"}`;
 
   return (
-    <div ref={rowRef} className="hidden lg:flex items-center gap-6 h-14">
-      {/* All sections */}
-      <div className="relative shrink-0">
-        <button type="button" onClick={() => setPanel(panel === "all" ? null : "all")} aria-haspopup="true" aria-expanded={panel === "all"}
-          className={`flex items-center gap-3 h-11 w-64 px-4 rounded-full text-[15px] font-semibold transition-colors outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${panel === "all" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-900 hover:bg-slate-200"}`}>
-          <Icon name={panel === "all" ? "close" : "menu"} className="w-5 h-5" strokeWidth={2} />
-          All Sections
-        </button>
-        {panel === "all" && <AllSectionsPanel items={items} current={current} onPick={() => setPanel(null)} />}
-      </div>
-
-      {/* Quick links */}
-      <div ref={linksRef} className="relative flex-1 min-w-0 flex items-center">
-        {/* Hidden copy of every link, only to measure their widths. Clipped to zero size so
-            the off-screen links can't stretch the page and cause a sideways scrollbar. */}
-        <div ref={measureRef} className="absolute left-0 top-0 w-0 h-0 overflow-hidden invisible pointer-events-none flex" aria-hidden="true">
-          {pages.map(p => <span key={p.href + p.name} className={linkClass(false)}>{p.name}</span>)}
-        </div>
-
-        <nav aria-label="Pages" className="flex items-center">
-          {shown.map(p => {
-            const active = p.href === current;
+    <div ref={rowRef} className="hidden lg:flex items-center h-14">
+      <nav aria-label="Sections" className="flex items-center gap-1">
+        {items.map(item => {
+          if (item.kind === "link") {
+            const active = item.link.href === current;
             return (
-              <Link key={p.href + p.name} href={p.href} aria-current={active ? "page" : undefined} className={`group ${linkClass(active)}`}>
-                {p.name}
-                <span className={`absolute left-3.5 right-3.5 -bottom-0.5 h-[2px] rounded-full bg-current origin-left transition-transform duration-300 ${active ? "scale-x-100" : "scale-x-0 group-hover:scale-x-100"}`} aria-hidden="true" />
+              <Link key={item.link.href + item.link.name} href={item.link.href} aria-current={active ? "page" : undefined}
+                onMouseEnter={hideSoon} className={itemClass(active)}>
+                <Icon name={item.link.icon} className="w-[18px] h-[18px]" strokeWidth={2} />
+                {item.link.name}
               </Link>
             );
-          })}
+          }
 
-          {overflow.length > 0 && (
-            <div className="relative shrink-0">
-              <button type="button" onClick={() => setPanel(panel === "more" ? null : "more")} aria-haspopup="menu" aria-expanded={panel === "more"}
-                className={`flex items-center gap-1 px-3.5 py-2 text-[15px] transition-colors ${overflow.some(p => p.href === current) ? "text-blue-700 font-semibold" : "text-slate-700 hover:text-slate-950"}`}>
-                More
-                <Icon name="chevron" strokeWidth={2.5} className={`w-4 h-4 transition-transform duration-200 ${panel === "more" ? "rotate-180" : ""}`} />
+          const expanded = open === item.title;
+          const active = item.links.some(l => l.href === current);
+          const wide = item.links.length > 4;
+          const panelWidth = wide ? 576 : 320; // w-[36rem] / w-80
+          return (
+            <div key={item.title} className="relative" onMouseEnter={e => show(item.title, e.currentTarget, panelWidth)} onMouseLeave={hideSoon}>
+              <button type="button" aria-haspopup="menu" aria-expanded={expanded}
+                onClick={e => (expanded ? setOpen(null) : show(item.title, e.currentTarget.parentElement!, panelWidth))}
+                onFocus={e => show(item.title, e.currentTarget.parentElement!, panelWidth)}
+                className={itemClass(active, expanded)}>
+                <Icon name={item.icon} className="w-[18px] h-[18px]" strokeWidth={2} />
+                {item.title}
+                <Icon name="chevron" strokeWidth={2.5} className={`w-3.5 h-3.5 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
               </button>
-              {panel === "more" && (
-                <div className="absolute right-0 top-full pt-2 z-[70]">
-                  <div role="menu" className="nav-pop w-72 rounded-2xl bg-white border border-slate-200 shadow-2xl shadow-slate-900/10 p-1.5">
-                    {overflow.map(p => (
-                      <Link key={p.href + p.name} href={p.href} role="menuitem" onClick={() => setPanel(null)}
-                        className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-colors ${p.href === current ? "bg-blue-50" : "hover:bg-slate-50"}`}>
-                        <Icon name={p.icon} className="w-[18px] h-[18px] text-slate-500" />
-                        <span className="min-w-0">
-                          <span className={`block text-sm font-semibold ${p.href === current ? "text-blue-700" : "text-slate-900"}`}>{p.name}</span>
-                          <span className="block text-xs text-slate-500 truncate">{p.hint}</span>
-                        </span>
-                      </Link>
-                    ))}
+
+              {expanded && (
+                <div className="absolute top-full pt-2 z-[70]" style={{ left: shift }}>
+                  <div role="menu" aria-label={item.title}
+                    className={`nav-pop rounded-2xl bg-white border border-slate-200 shadow-2xl shadow-slate-900/15 p-3 max-h-[calc(100vh-11rem)] overflow-y-auto ${wide ? "w-[36rem]" : "w-80"}`}>
+                    <p className="px-2.5 pt-1 pb-2 text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">{item.title}</p>
+                    <ul className={`grid gap-1 ${wide ? "grid-cols-2" : "grid-cols-1"}`}>
+                      {item.links.map(l => {
+                        const here = l.href === current;
+                        return (
+                          <li key={l.href + l.name}>
+                            <Link href={l.href} role="menuitem" onClick={close} aria-current={here ? "page" : undefined}
+                              className={`group flex items-center gap-3 rounded-xl px-2.5 py-2.5 transition-colors ${here ? "bg-blue-50" : "hover:bg-slate-50"}`}>
+                              <span className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-colors ${here ? "bg-blue-700 text-white" : "bg-slate-100 text-slate-600 group-hover:bg-slate-900 group-hover:text-white"}`}>
+                                <Icon name={l.icon} className="w-[18px] h-[18px]" />
+                              </span>
+                              <span className="min-w-0">
+                                <span className={`block text-sm font-bold ${here ? "text-blue-700" : "text-slate-900"}`}>{l.name}</span>
+                                <span className="block text-xs text-slate-500 truncate">{l.hint}</span>
+                              </span>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
                   </div>
                 </div>
               )}
             </div>
-          )}
-        </nav>
-      </div>
+          );
+        })}
+      </nav>
+
+      {/* Most-used pages for this role. Shown when the bar has room: on narrower
+          screens only the main action stays if the sections already fill the row. */}
+      {quick.length > 0 && (
+        <div className="ml-auto hidden xl:flex items-center gap-2 pl-4" aria-label="Shortcuts">
+          {quick.map((q, i) => {
+            const here = q.href === current;
+            const main = i === 0;
+            return (
+              <Link key={q.href + q.name} href={q.href} title={q.hint} aria-current={here ? "page" : undefined} onMouseEnter={hideSoon}
+                className={`group items-center gap-2 h-10 px-4 rounded-full text-sm font-bold whitespace-nowrap transition-all hover:-translate-y-0.5 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                  i > 0 && items.length > 4 ? "hidden 2xl:inline-flex" : "inline-flex"} ${
+                  main
+                    ? "bg-rose-600 text-white shadow-lg shadow-rose-600/25 hover:bg-rose-500"
+                    : here
+                      ? "bg-slate-900 text-white"
+                      : "bg-white text-slate-900 ring-2 ring-inset ring-slate-900 hover:bg-slate-900 hover:text-white"}`}>
+                <Icon name={q.icon} className="w-4 h-4" strokeWidth={2.2} />
+                {q.name}
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -656,6 +671,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const showNav = !!user && !user.mustChangePassword;
   const items = useMemo(() => (showNav ? navFor(user!.role, supplierCategories) : []), [showNav, user, supplierCategories]);
   const pages = useMemo(() => flatten(items), [items]);
+  const quick = useMemo(() => (showNav ? quickFor(user!.role) : []), [showNav, user]);
   const current = activeHref(pathname, pages);
 
   // The payment gateway is its own site in the real world: no app header or footer around it.
@@ -701,15 +717,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          {/* Mobile search */}
-          {showNav && (
+          {/* Mobile search. Left off an attendant's pump screen, where the sale form needs
+              the height; the menu button still reaches every page. */}
+          {showNav && !(pathname === "/fuel" && user?.role === "FUEL_ATTENDANT") && (
             <div className="md:hidden pb-3">
               <PageSearch pages={pages} />
             </div>
           )}
 
           {/* Row 2: all sections · quick links · more */}
-          {showNav && <CategoryRow items={items} pages={pages} current={current} />}
+          {showNav && <CategoryRow items={items} quick={quick} current={current} />}
         </div>
       </header>
 

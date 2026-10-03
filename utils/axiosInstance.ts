@@ -1,8 +1,11 @@
 import axios from 'axios';
 
-// The one place the API address lives. Set NEXT_PUBLIC_API_BASE_URL when the
-// backend isn't on localhost (e.g. once deployed).
-export const API_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080'}/api`;
+// The one place the API address lives. By default the browser calls /api on the
+// address the site was opened from, and Next forwards it to the backend (see the
+// rewrite in next.config.ts) — so the site works the same on localhost and through
+// a public link. Set NEXT_PUBLIC_API_BASE_URL only when the backend has its own
+// public address.
+export const API_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL || ''}/api`;
 
 // Signed-in requests: attaches the token and handles account-level responses.
 const api = axios.create({

@@ -15,6 +15,8 @@ const rolePermissions: Record<string, string[]> = {
   '/tanks':      ['FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER'],
   // FIXED: Added FUEL_ATTENDANT to /fuel
   '/fuel':       ['FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER', 'FUEL_ATTENDANT'],
+  // Fuel pass register: issue, print and suspend the QR passes scanned at the pump.
+  '/fuel-passes': ['FUEL_STATION_SUPERVISOR'],
   // Suppliers dispatch their bowsers from this page; supervisors order/receive.
   // Finance reads it too: open fuel orders are future liabilities.
   '/fuel-deliveries': ['FUEL_STATION_SUPERVISOR', 'SUPPLIER', 'ACCOUNTS_FINANCE_OFFICER'],
@@ -80,7 +82,7 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/bookings/:path*', '/tanks/:path*', '/fuel/:path*', '/fuel-deliveries/:path*', '/suppliers/:path*', '/payables/:path*',
+    '/bookings/:path*', '/tanks/:path*', '/fuel/:path*', '/fuel-deliveries/:path*', '/fuel-passes/:path*', '/suppliers/:path*', '/payables/:path*',
     '/salary/:path*', '/complaints/:path*', '/customers/:path*', '/deliveries/:path*',
     '/parts/:path*', '/rma/:path*', '/support/:path*', '/roster/:path*', '/users/:path*',
     '/pos/:path*', '/audit/:path*', '/membership/:path*', '/billing/:path*', '/expenses/:path*', '/reports/:path*', '/warranty/:path*', '/pay/:path*'
