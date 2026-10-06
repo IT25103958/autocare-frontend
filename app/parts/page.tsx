@@ -12,6 +12,7 @@ import Link from "next/link";
 import InventoryOverview from "./_components/InventoryOverview";
 import StockHistoryDrawer from "./_components/StockHistoryDrawer";
 import AdjustStockDialog from "./_components/AdjustStockDialog";
+import RunOutForecast, { Forecast } from "../_components/RunOutForecast";
 import { InventoryPart } from "./_components/inventory";
 import { downloadCsv as downloadCSV } from "../billing/_components/billing";
 
@@ -353,6 +354,14 @@ export default function PartsInventoryPage() {
     }
   };
 
+  // "Reorder" from the run-out forecast: same dialog, with the forecast's suggested quantity.
+  const reorderFromForecast = (row: Forecast) => {
+    const full = parts.find((p) => p.partCode?.toUpperCase() === row.key);
+    if (!full) return;
+    setSupplyModal({ isOpen: true, part: full });
+    setSupplyData({ quantity: Math.max(1, Math.round(row.suggestedOrder)), supplierId: "", agreedUnitPrice: full.costPrice || full.unitPrice });
+  };
+
   // "Reorder" from the low-stock list: open the purchase-order dialog pre-filled.
   const openReorder = (part: InventoryPart, quantity: number) => {
     const full = parts.find((p) => (p.partID || p.partId || p.id) === part.partID) || (part as unknown as SparePart);
@@ -469,6 +478,12 @@ export default function PartsInventoryPage() {
 
         {isManager && (
           <InventoryOverview refreshKey={refreshKey} onReorder={openReorder} onShowHistory={setHistoryPart} />
+        )}
+
+        {isManager && (
+          <div className="mb-8">
+            <RunOutForecast endpoint="/insights/parts-forecast" title="Run-out Forecast" refreshKey={refreshKey} onOrder={reorderFromForecast} orderLabel="Reorder" />
+          </div>
         )}
 
         <div className={`grid grid-cols-1 ${isManager ? "lg:grid-cols-3" : "lg:grid-cols-1"} gap-8`}>
@@ -700,7 +715,7 @@ export default function PartsInventoryPage() {
 
           {/* CONFIRM DELETE MODAL */}
           {confirmState.isOpen && (
-            <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="confirm-title"
+            <div className="fixed inset-0 z-[110] flex items-center-safe justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="confirm-title"
               onKeyDown={(e) => { if (e.key === "Escape" && !confirmState.pending) setConfirmState(CLOSED_CONFIRM); }}>
               <div className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-sm w-full border border-slate-200 text-center">
                 <div className="flex items-center justify-center w-12 h-12 rounded-full mb-4 mx-auto bg-red-100 text-red-600">
@@ -720,7 +735,7 @@ export default function PartsInventoryPage() {
 
           {/* PURCHASE ORDER (SUPPLY REQUEST) MODAL */}
           {supplyModal.isOpen && supplyModal.part && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="supply-modal-title">
+            <div className="fixed inset-0 z-[100] flex items-center-safe justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="supply-modal-title">
               <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-md w-full border border-slate-200">
                 <div className="flex justify-between items-center mb-6">
                   <div><h3 id="supply-modal-title" className="text-xl font-black text-slate-900">Request Stock Replenishment</h3><p className="text-xs font-bold text-blue-600 mt-1 uppercase tracking-widest">{supplyModal.part.partCode} • {supplyModal.part.name}</p></div>
@@ -791,7 +806,7 @@ export default function PartsInventoryPage() {
 
           {/* RMA INITIATION MODAL */}
           {rmaModal.isOpen && rmaModal.part && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="rma-modal-title">
+            <div className="fixed inset-0 z-[100] flex items-center-safe justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="rma-modal-title">
               <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-md w-full border border-slate-200">
                 <div className="flex justify-between items-center mb-6">
                   <div><h3 id="rma-modal-title" className="text-xl font-black text-slate-900">Initiate RMA</h3><p className="text-xs font-bold text-slate-500 mt-1 uppercase tracking-widest">{rmaModal.part.partCode} • {rmaModal.part.name}</p></div>

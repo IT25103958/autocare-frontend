@@ -114,7 +114,7 @@ export default function CustomerUpcoming({ bookings, cutoffHours, onChanged }: {
       </ul>
 
       {rescheduling && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="resched-title">
+        <div className="fixed inset-0 z-50 flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="resched-title">
           <div className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-lg w-full border border-slate-200 space-y-4 max-h-[90vh] overflow-y-auto">
             <div>
               <h3 id="resched-title" className="text-xl font-black text-slate-900">Reschedule {jobRef(rescheduling.bookingID)}</h3>

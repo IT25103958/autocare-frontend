@@ -222,7 +222,7 @@ export default function UserManagementDashboard() {
 
       {/* --- NOTIFICATION MODAL --- */}
       {alertModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200 overflow-y-auto">
           <div className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-sm w-full border border-slate-200 text-center">
             <div className={`flex items-center justify-center w-12 h-12 rounded-full mb-4 mx-auto ${alertModal.type === 'success' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
               {alertModal.type === 'success' ? (

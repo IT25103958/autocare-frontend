@@ -96,7 +96,7 @@ export default function DayCloseCard({ date, canClose, refreshKey, onClosed }: {
   };
 
   return (
-    <form onSubmit={close} className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
+    <form onSubmit={close} data-focus="day-close" className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-black text-slate-900">Day-close reconciliation · {fmtDay(date)}</h3>

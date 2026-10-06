@@ -66,7 +66,7 @@ export default function AssignDialog({ booking, onClose, onSaved }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="assign-title">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="assign-title">
       <div className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-2xl w-full border border-slate-200 space-y-5 max-h-[90vh] overflow-y-auto">
         <div>
           <h3 id="assign-title" className="text-xl font-black text-slate-900">{booking.status === "CONFIRMED" ? "Reassign" : "Confirm & Assign"} {jobRef(booking.bookingID)}</h3>

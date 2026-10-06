@@ -181,7 +181,7 @@ export default function WorkshopPage() {
     const upcomingFirst = tab === "requests" || tab === "workshop" || tab === "mine" || tab === "board";
     return list
       .filter(b => tab !== "all" || statusFilter === "ALL" || b.status === statusFilter)
-      .filter(b => !q || [jobRef(b.bookingID), b.vehicleRegNo, b.servicePackage, b.technicianName, b.customerUsername].some(v => v?.toLowerCase().includes(q)))
+      .filter(b => !q || [jobRef(b.bookingID), b.vehicleRegNo, b.servicePackage, b.technicianName, b.customerUsername, b.walkInName, b.walkInPhone].some(v => v?.toLowerCase().includes(q)))
       .sort((a, b) => upcomingFirst ? a.preferredDate.localeCompare(b.preferredDate) : b.preferredDate.localeCompare(a.preferredDate));
   }, [tab, bookings, myJobs, search, statusFilter]);
 
@@ -251,6 +251,7 @@ export default function WorkshopPage() {
                         <td className="px-5 py-4 whitespace-nowrap">
                           <button onClick={() => setViewing(b)} className="font-mono text-xs font-bold text-blue-700 hover:underline">{jobRef(b.bookingID)}</button>
                           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mt-1">{b.customerUsername ? "Online" : "Walk-in"}</p>
+                          {b.walkInName && <p className="text-xs font-semibold text-slate-700 mt-0.5">{b.walkInName}</p>}
                         </td>
                         <td className="px-5 py-4">
                           <p className="font-black text-slate-900 font-mono">{b.vehicleRegNo}</p>
@@ -315,7 +316,7 @@ export default function WorkshopPage() {
         <NewJobDialog onClose={() => setCreating(false)} onCreated={b => { setCreating(false); load(); setAssigning(b); }} />
       )}
       {rescheduling && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="rs-title">
+        <div className="fixed inset-0 z-50 flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="rs-title">
           <div className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-md w-full border border-slate-200 space-y-4">
             <h3 id="rs-title" className="text-xl font-black text-slate-900">Reschedule {jobRef(rescheduling.bookingID)}</h3>
             <p className="text-sm text-slate-500">Moving a booking releases its technician and bay; confirm it again afterwards. The customer is emailed.</p>

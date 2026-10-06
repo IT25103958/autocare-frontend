@@ -1,323 +1,279 @@
 "use client";
 
-import { useState } from "react";
-import { publicApi } from "../../utils/axiosInstance";
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
+import { publicApi } from "../../utils/axiosInstance";
+import {
+  emailProblem, fullNameProblem, passwordProblem, passwordStrength, suggestUsername,
+  tidyEmail, tidyName, usernameProblem,
+} from "../../utils/signupRules";
+import {
+  AuthBanner, AuthBox, AuthButton, AuthField, AuthFrame, AuthIcon, AuthTitle, Stagger, authLinkCls, shake,
+  type FieldNote, type FieldStatus,
+} from "../_components/AuthUI";
 
-// --- 1. ZOD SCHEMA (With Email Validation) ---
+// Wraps one of the shared rule functions as a Zod check.
+const rule = (problem: (v: string) => string | null) =>
+  z.string().superRefine((v, ctx) => {
+    const p = problem(v);
+    if (p) ctx.addIssue({ code: "custom", message: p });
+  });
+
 const registerSchema = z.object({
-  fullName: z.string().min(2, "Full name is required."),
-  email: z.string().email("Please enter a valid email address."),
-  username: z.string().min(3, "Username must be at least 3 characters."),
-  password: z.string().min(6, "Password must be at least 6 characters."),
-  confirmPassword: z.string()
-}).refine((data) => data.password === data.confirmPassword, {
+  fullName: rule(fullNameProblem),
+  email: rule(emailProblem),
+  username: rule(usernameProblem),
+  password: rule(passwordProblem),
+  confirmPassword: z.string().min(1, "Please confirm your password."),
+}).refine(d => d.password === d.confirmPassword, {
   message: "Passwords do not match.",
   path: ["confirmPassword"],
+  // Compare as soon as both are filled, even while other fields still have mistakes.
+  when: p => typeof (p.value as { confirmPassword?: unknown })?.confirmPassword === "string"
+    && ((p.value as { confirmPassword: string }).confirmPassword.length > 0),
 });
 
 type RegisterFormInputs = z.infer<typeof registerSchema>;
 
+type Availability = "idle" | "checking" | "free" | "taken" | "unknown";
+
+// Asks the backend whether a username / email is free, a moment after typing stops.
+function useAvailability(param: "username" | "email", value: string, valid: boolean): Availability {
+  // The answer is kept with the value it was for, so a newer value reads as "checking".
+  const [answer, setAnswer] = useState<{ value: string; state: Availability }>({ value: "", state: "idle" });
+  useEffect(() => {
+    if (!valid) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      let state: Availability;
+      try {
+        const res = await publicApi.get("/auth/availability", { params: { [param]: value } });
+        state = res.data?.[param === "username" ? "usernameTaken" : "emailTaken"] ? "taken" : "free";
+      } catch {
+        state = "unknown"; // the backend checks again on submit
+      }
+      if (!cancelled) setAnswer({ value, state });
+    }, 450);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [param, value, valid]);
+  if (!valid) return "idle";
+  return answer.value === value ? answer.state : "checking";
+}
+
+const STRENGTH = [
+  { label: "Too weak", bar: "bg-red-500", text: "text-red-400" },
+  { label: "Weak", bar: "bg-orange-500", text: "text-orange-400" },
+  { label: "Fair", bar: "bg-amber-400", text: "text-amber-400" },
+  { label: "Good", bar: "bg-cyan-400", text: "text-cyan-300" },
+  { label: "Strong", bar: "bg-emerald-400", text: "text-emerald-400" },
+];
+
+// One line under the two password boxes: strength bars, then the three required rules.
+function PasswordMeter({ value }: { value: string }) {
+  const score = passwordStrength(value);
+  const s = STRENGTH[score];
+  const filled = value ? Math.max(score, 1) : 0; // "Too weak" still lights the first bar
+  const checks = [
+    { ok: value.length >= 8 && value.length <= 72, text: "8+ chars" },
+    { ok: /\p{L}/u.test(value), text: "Letter" },
+    { ok: /[0-9]/.test(value), text: "Number" },
+  ];
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex items-center gap-2 min-w-[9rem] flex-1">
+        <div className="flex-1 grid grid-cols-4 gap-1">
+          {[1, 2, 3, 4].map(i => (
+            <span key={i} className="h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <span className={`block h-full rounded-full transition-all duration-500 ${s.bar} ${i <= filled ? "w-full" : "w-0"}`} />
+            </span>
+          ))}
+        </div>
+        <span key={value ? s.label : "none"} className={`auth-msg-in text-[11px] font-black w-14 ${value ? s.text : "text-zinc-600"}`}>
+          {value ? s.label : "Strength"}
+        </span>
+      </div>
+      <ul className="flex gap-3">
+        {checks.map(c => (
+          <li key={c.text} className={`flex items-center gap-1 text-[11px] font-bold transition-colors duration-300 ${c.ok ? "text-emerald-400" : "text-zinc-500"}`}>
+            <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center transition-all duration-300 ${c.ok ? "bg-emerald-500 text-white scale-100" : "bg-white/10 text-transparent scale-90"}`}>
+              <AuthIcon name="check" className="w-2.5 h-2.5" />
+            </span>
+            {c.text}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function RegisterPage() {
   const router = useRouter();
-  const [serverMessage, setServerMessage] = useState({ type: "", text: "" });
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [serverError, setServerError] = useState("");
+  const [created, setCreated] = useState<{ name: string; username: string } | null>(null);
 
   const {
-    register,
-    handleSubmit,
-    formState: { errors, isSubmitting },
+    register, handleSubmit, watch, trigger, setValue, getValues,
+    formState: { errors, dirtyFields, isSubmitting, isSubmitted },
   } = useForm<RegisterFormInputs>({
     resolver: zodResolver(registerSchema),
+    mode: "onChange", // show each mistake while typing
+    defaultValues: { fullName: "", email: "", username: "", password: "", confirmPassword: "" },
   });
 
-  const onSubmit = async (data: RegisterFormInputs) => {
-    setServerMessage({ type: "", text: "" });
+  const [username, email, password, confirmPassword] = watch(["username", "email", "password", "confirmPassword"]);
+  const usernameState = useAvailability("username", username, usernameProblem(username) === null);
+  const emailState = useAvailability("email", tidyEmail(email), emailProblem(email) === null);
 
+  // Changing the password re-checks the confirmation once it has been typed.
+  useEffect(() => {
+    if (getValues("confirmPassword")) trigger("confirmPassword");
+  }, [password, getValues, trigger]);
+
+  const statusOf = (name: keyof RegisterFormInputs, extra?: Availability): FieldStatus => {
+    if (errors[name]) return "error";
+    if (extra === "taken") return "error";
+    if (extra === "checking") return "checking";
+    return dirtyFields[name] && getValues(name) ? "valid" : "idle";
+  };
+
+  const availabilityNote = (state: Availability, what: string): FieldNote =>
+    state === "taken" ? { tone: "error", text: `This ${what} is already ${what === "email" ? "registered" : "taken"}.` }
+    : state === "checking" ? { tone: "hint", text: "Checking availability…" }
+    : state === "free" ? { tone: "ok", text: what === "email" ? "Looks good." : "Username is available." }
+    : null;
+
+  const suggestion = errors.username ? suggestUsername(username) : null;
+  const usernameNote: FieldNote = errors.username
+    ? {
+        tone: "error",
+        text: (
+          <>
+            {errors.username.message}
+            {suggestion && (
+              <> Try{" "}
+                <button type="button" className="underline decoration-2 underline-offset-2 text-cyan-300 hover:text-cyan-200"
+                  onClick={() => setValue("username", suggestion, { shouldValidate: true, shouldDirty: true })}>
+                  {suggestion}
+                </button>
+              </>
+            )}
+          </>
+        ),
+      }
+    : availabilityNote(usernameState, "username");
+
+  const onInvalid = () => shake(cardRef.current);
+
+  const onSubmit = async (data: RegisterFormInputs) => {
+    setServerError("");
+    if (usernameState === "taken" || emailState === "taken") { shake(cardRef.current); return; }
     try {
-      const payload = {
-        fullName: data.fullName,
-        email: data.email,
+      await publicApi.post("/auth/register", {
+        fullName: tidyName(data.fullName),
+        email: tidyEmail(data.email),
         username: data.username,
         password: data.password,
-        role: "CUSTOMER"
-      };
-
-      await publicApi.post("/auth/register", payload);
-
-      setServerMessage({ type: "success", text: "Account created successfully! Redirecting..." });
-
-      setTimeout(() => {
-        router.push("/login");
-      }, 2000);
-
-    } catch (err: any) {
-      console.error("Registration Error:", err.response || err);
-
-      // --- UPGRADED DYNAMIC ERROR HANDLING ---
-      // Try to extract the exact error message sent by Spring Boot
-      const backendError = err.response?.data?.message || err.response?.data;
-
-      if (typeof backendError === "string" && backendError.length < 100) {
-        // If Spring Boot gave us a clean string error (e.g. "Email already in use")
-        setServerMessage({ type: "error", text: backendError });
-      } else if (err.response?.status === 400) {
-        // Fallback for generic 400 errors
-        setServerMessage({ type: "error", text: "Registration failed. This email or username is already taken." });
-      } else {
-        // Fallback for server crashes/network issues
-        setServerMessage({ type: "error", text: "Network error. Is the Spring Boot server running?" });
-      }
+      });
+      setCreated({ name: tidyName(data.fullName).split(" ")[0], username: data.username });
+      setTimeout(() => router.push(`/login?username=${encodeURIComponent(data.username)}`), 2600);
+    } catch (e) {
+      const err = e as { response?: { data?: { message?: string } | string } };
+      const data = err.response?.data;
+      const body = typeof data === "object" ? data?.message : data;
+      if (typeof body === "string" && body.length < 160) setServerError(body.replace(/^Error:\s*/, ""));
+      else if (err.response) setServerError("Registration failed. Please check your details and try again.");
+      else setServerError("Can't reach the server right now. Please try again in a moment.");
+      shake(cardRef.current);
     }
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] w-full bg-white">
-
-      {/* ========================================== */}
-      {/* LEFT PANEL: REGISTRATION FORM              */}
-      {/* ========================================== */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative overflow-hidden">
-
-        {/* Subtle background decoration */}
-        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-50/50 rounded-full blur-3xl pointer-events-none"></div>
-
-        <div className="relative w-full max-w-md z-10">
-
-          <div className="mb-8 animate-fade-in-right" style={{ animationDelay: "0.1s" }}>
-            <h2 className="text-4xl font-black tracking-tight text-slate-900 pb-2">
-              Join <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-500">Lanka Auto</span>
+    <AuthFrame eyebrow="Join Lanka Auto Care"
+      title={<>Your garage &amp;<br /><span className="hero-shimmer">fuel stop, online.</span></>}
+      sub="Book services, follow every repair live, pay bills online and keep your full service history.">
+      <AuthBox boxRef={cardRef}>
+        {created ? (
+          <div className="py-6 text-center">
+            <div className="auth-pop mx-auto w-20 h-20 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-[0_0_40px_rgba(16,185,129,0.5)]">
+              <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} aria-hidden="true">
+                <path className="auth-draw" strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <h2 className="hero-fade-up mt-6 text-3xl font-black tracking-tight text-zinc-50" style={{ animationDelay: "300ms" }}>
+              Welcome aboard, {created.name}!
             </h2>
-            <p className="mt-1 text-slate-500 font-medium">
-              Create your free account to manage your vehicle's service history and bookings.
+            <p className="hero-fade-up mt-2 text-zinc-400 font-medium" style={{ animationDelay: "400ms" }}>
+              Your account <span className="font-bold text-zinc-100">{created.username}</span> is ready. Taking you to sign in…
             </p>
-          </div>
-
-          <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
-
-            {/* Full Name */}
-            <div className="animate-fade-in-right" style={{ animationDelay: "0.15s", opacity: 0, animationFillMode: "forwards" }}>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Full Name</label>
-              <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-slate-400 group-focus-within:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                </div>
-                <input
-                  {...register("fullName")}
-                  type="text"
-                  placeholder="e.g., Nimal Perera"
-                  className={`w-full pl-11 pr-4 py-3 rounded-xl border bg-slate-50 focus:bg-white shadow-sm outline-none transition-all duration-300 ${
-                    errors.fullName ? "border-red-400 focus:ring-4 focus:ring-red-500/10" : "border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-                  }`}
-                />
-              </div>
-              {errors.fullName && <p className="mt-1 text-xs font-bold text-red-500 ml-1">{errors.fullName.message}</p>}
+            <div className="mt-8 h-1.5 rounded-full bg-white/10 overflow-hidden">
+              <div className="auth-bar h-full rounded-full bg-gradient-to-r from-blue-600 via-cyan-400 to-amber-400" style={{ animationDelay: "0ms", animationDuration: "2.6s" }} />
             </div>
+          </div>
+        ) : (
+          <>
+            <Stagger i={0} className="mb-6">
+              <AuthTitle sub="A free account for your vehicle's services, bookings and bills.">Create account</AuthTitle>
+            </Stagger>
 
-            {/* Email Address */}
-            <div className="animate-fade-in-right" style={{ animationDelay: "0.2s", opacity: 0, animationFillMode: "forwards" }}>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Email Address</label>
-              <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-slate-400 group-focus-within:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2-2v10a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <input
+            <form className="space-y-4" onSubmit={handleSubmit(onSubmit, onInvalid)} noValidate>
+              <div className="grid sm:grid-cols-2 gap-x-3 gap-y-4">
+                <Stagger i={1}>
+                  <AuthField label="Full name" icon="user" placeholder="Nimal Perera" autoComplete="name" maxLength={60}
+                    {...register("fullName")}
+                    status={statusOf("fullName")}
+                    note={errors.fullName ? { tone: "error", text: errors.fullName.message } : null} />
+                </Stagger>
+                <Stagger i={2}>
+                  <AuthField label="Username" icon="at" placeholder="nimal_perera" autoComplete="username" maxLength={20}
+                    autoCapitalize="none" spellCheck={false} title="3–20 characters: letters, numbers, dots or underscores. No spaces."
+                    {...register("username")}
+                    status={statusOf("username", usernameState)}
+                    labelExtra={<span className="text-[11px] font-bold tabular-nums text-zinc-500">{username.length}/20</span>}
+                    note={usernameNote} />
+                </Stagger>
+              </div>
+
+              <Stagger i={3}>
+                <AuthField label="Email address" icon="mail" type="email" placeholder="name@example.com" autoComplete="email" maxLength={100}
                   {...register("email")}
-                  type="email"
-                  placeholder="name@example.com"
-                  className={`w-full pl-11 pr-4 py-3 rounded-xl border bg-slate-50 focus:bg-white shadow-sm outline-none transition-all duration-300 ${
-                    errors.email ? "border-red-400 focus:ring-4 focus:ring-red-500/10" : "border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-                  }`}
-                />
-              </div>
-              {errors.email && <p className="mt-1 text-xs font-bold text-red-500 ml-1">{errors.email.message}</p>}
-            </div>
+                  status={statusOf("email", emailState)}
+                  note={errors.email ? { tone: "error", text: errors.email.message } : availabilityNote(emailState, "email")} />
+              </Stagger>
 
-            {/* Username */}
-            <div className="animate-fade-in-right" style={{ animationDelay: "0.25s", opacity: 0, animationFillMode: "forwards" }}>
-              <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Username</label>
-              <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                  <svg className="h-5 w-5 text-slate-400 group-focus-within:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <input
-                  {...register("username")}
-                  type="text"
-                  placeholder="Choose a username"
-                  className={`w-full pl-11 pr-4 py-3 rounded-xl border bg-slate-50 focus:bg-white shadow-sm outline-none transition-all duration-300 ${
-                    errors.username ? "border-red-400 focus:ring-4 focus:ring-red-500/10" : "border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-                  }`}
-                />
-              </div>
-              {errors.username && <p className="mt-1 text-xs font-bold text-red-500 ml-1">{errors.username.message}</p>}
-            </div>
-
-            {/* Passwords Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 animate-fade-in-right" style={{ animationDelay: "0.3s", opacity: 0, animationFillMode: "forwards" }}>
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Password</label>
-                <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <svg className="h-5 w-5 text-slate-400 group-focus-within:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                    </svg>
-                  </div>
-                  <input
+              <Stagger i={4}>
+                <div className="grid sm:grid-cols-2 gap-x-3 gap-y-4">
+                  <AuthField label="Password" icon="lock" type="password" placeholder="8+ characters" autoComplete="new-password" reveal maxLength={72}
                     {...register("password")}
-                    type="password"
-                    placeholder="••••••••"
-                    className={`w-full pl-11 pr-4 py-3 rounded-xl border bg-slate-50 focus:bg-white shadow-sm outline-none transition-all duration-300 ${
-                      errors.password ? "border-red-400 focus:ring-4 focus:ring-red-500/10" : "border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-                    }`}
-                  />
-                </div>
-                {errors.password && <p className="mt-1 text-xs font-bold text-red-500 ml-1">{errors.password.message}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1.5 ml-1">Confirm Password</label>
-                <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <svg className="h-5 w-5 text-slate-400 group-focus-within:text-blue-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                    </svg>
-                  </div>
-                  <input
+                    status={statusOf("password")}
+                    note={errors.password && isSubmitted ? { tone: "error", text: errors.password.message } : null} />
+                  <AuthField label="Confirm password" icon="shield" type="password" placeholder="Type it again" autoComplete="new-password" reveal maxLength={72}
                     {...register("confirmPassword")}
-                    type="password"
-                    placeholder="••••••••"
-                    className={`w-full pl-11 pr-4 py-3 rounded-xl border bg-slate-50 focus:bg-white shadow-sm outline-none transition-all duration-300 ${
-                      errors.confirmPassword ? "border-red-400 focus:ring-4 focus:ring-red-500/10" : "border-slate-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-                    }`}
-                  />
+                    status={statusOf("confirmPassword")}
+                    note={errors.confirmPassword ? { tone: "error", text: errors.confirmPassword.message }
+                      : confirmPassword && confirmPassword === password ? { tone: "ok", text: "Passwords match." } : null} />
                 </div>
-                {errors.confirmPassword && <p className="mt-1 text-xs font-bold text-red-500 ml-1">{errors.confirmPassword.message}</p>}
-              </div>
-            </div>
+                <PasswordMeter value={password} />
+              </Stagger>
 
-            {serverMessage.text && (
-              <div className={`p-4 rounded-xl flex items-center gap-3 animate-fade-in-right ${serverMessage.type === "success" ? "bg-green-50 text-green-700 border-l-4 border-green-500" : "bg-red-50 text-red-700 border-l-4 border-red-500"}`} style={{ animationDelay: "0.4s", opacity: 0, animationFillMode: "forwards" }}>
-                <p className="text-sm font-bold">{serverMessage.text}</p>
-              </div>
-            )}
+              {serverError && <AuthBanner tone="error">{serverError}</AuthBanner>}
 
-            <div className="pt-2 animate-fade-in-right" style={{ animationDelay: "0.4s", opacity: 0, animationFillMode: "forwards" }}>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full relative flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-blue-600/30 transition-all duration-300 transform hover:-translate-y-0.5 disabled:opacity-70 overflow-hidden group"
-              >
-                {isSubmitting ? (
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                ) : null}
-                {isSubmitting ? "Setting up garage..." : "Create Account"}
-              </button>
-            </div>
-          </form>
+              <Stagger i={5} className="pt-1">
+                <AuthButton busy={isSubmitting} busyText="Setting up your garage…">Create account</AuthButton>
+              </Stagger>
+            </form>
 
-          <div className="mt-6 text-center text-sm font-medium text-slate-500 animate-fade-in-right" style={{ animationDelay: "0.5s", opacity: 0, animationFillMode: "forwards" }}>
-            Already part of the family?{" "}
-            <Link href="/login" className="font-bold text-blue-600 hover:text-blue-700 transition-colors">
-              Sign In here
-            </Link>
-          </div>
-
-        </div>
-      </div>
-
-      {/* ========================================== */}
-      {/* RIGHT PANEL: CUSTOMER BENEFITS GRAPHICS    */}
-      {/* ========================================== */}
-      <div className="hidden lg:flex lg:w-1/2 relative bg-gradient-to-br from-blue-600 to-indigo-900 overflow-hidden items-center justify-center p-12">
-        {/* Soft lighting effects */}
-        <div className="absolute top-0 right-0 w-[150%] h-[150%] bg-[radial-gradient(circle_at_bottom_right,_var(--tw-gradient-stops))] from-cyan-400/20 via-transparent to-transparent"></div>
-
-        <div className="relative z-10 w-full max-w-lg">
-          <div className="animate-fade-in-left" style={{ animationDelay: "0.2s" }}>
-            <h1 className="text-4xl lg:text-5xl font-black text-white leading-tight tracking-tight mb-6">
-              Your personal <br />
-              <span className="text-cyan-300">digital garage.</span>
-            </h1>
-            <p className="text-blue-100 text-lg font-medium mb-12">
-              Book services, track maintenance history, and get real-time updates on your vehicle directly from your phone or computer.
-            </p>
-          </div>
-
-          {/* Decorative Floating Customer UI Elements */}
-          <div className="relative h-64 animate-float-slow">
-
-            {/* Feature Card 1: Booking */}
-            <div className="absolute top-0 right-10 w-72 bg-white/10 backdrop-blur-md border border-white/20 p-5 rounded-2xl shadow-2xl">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-full bg-cyan-400/20 flex items-center justify-center text-cyan-300">
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <div>
-                  <div className="text-white font-bold text-sm">Instant Booking</div>
-                  <div className="text-cyan-200 text-xs mt-0.5">Skip the waiting line</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Feature Card 2: Vehicle Status */}
-            <div className="absolute top-24 left-0 w-80 bg-white/5 backdrop-blur-md border border-white/10 p-5 rounded-2xl shadow-2xl animate-float-delayed">
-               <div className="flex items-center justify-between mb-3">
-                 <span className="text-xs font-bold text-white tracking-widest uppercase">Toyota Prius (CBA-1234)</span>
-                 <span className="px-2 py-1 bg-green-500/20 text-green-300 text-[10px] font-bold rounded-full">IN BAY</span>
-               </div>
-               <div className="w-full bg-white/10 rounded-full h-2 mb-2">
-                 <div className="bg-gradient-to-r from-cyan-400 to-blue-500 h-2 rounded-full w-[65%]"></div>
-               </div>
-               <div className="text-xs font-medium text-blue-200 text-right">65% Completed</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ========================================== */}
-      {/* INLINE CSS FOR GUARANTEED ANIMATIONS       */}
-      {/* ========================================== */}
-      <style dangerouslySetInnerHTML={{__html: `
-        @keyframes fadeInRight {
-          0% { opacity: 0; transform: translateX(-20px); }
-          100% { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes fadeInLeft {
-          0% { opacity: 0; transform: translateX(20px); }
-          100% { opacity: 1; transform: translateX(0); }
-        }
-        @keyframes floatSlow {
-          0% { transform: translateY(0px); }
-          50% { transform: translateY(-10px); }
-          100% { transform: translateY(0px); }
-        }
-        .animate-fade-in-right {
-          animation: fadeInRight 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        .animate-fade-in-left {
-          animation: fadeInLeft 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        .animate-float-slow {
-          animation: floatSlow 7s ease-in-out infinite;
-        }
-        .animate-float-delayed {
-          animation: floatSlow 7s ease-in-out 3.5s infinite;
-        }
-      `}} />
-    </div>
+            <Stagger i={6} className="mt-5 text-center text-sm">
+              <span className="text-zinc-500">Already have an account? </span>
+              <Link href="/login" className={authLinkCls}>Sign in</Link>
+            </Stagger>
+          </>
+        )}
+      </AuthBox>
+    </AuthFrame>
   );
 }

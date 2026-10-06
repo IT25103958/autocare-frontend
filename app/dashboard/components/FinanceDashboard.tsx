@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import FinanceAlerts from "./FinanceAlerts";
+import DailyBrief from "./DailyBrief";
 import api from "../../../utils/axiosInstance";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -672,7 +673,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
           const noteOk = !noteRequired || reviewModal.note.trim().length >= 5;
           return (
             <div
-              className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+              className="fixed inset-0 z-[100] flex items-center-safe justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto"
               role="dialog"
               aria-modal="true"
               aria-labelledby="review-handover-title"
@@ -730,7 +731,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
       {/* CONFIRM DELETE MODAL — also portaled, for the same reason. */}
       {portalTarget && confirmDelete && createPortal(
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[100] flex items-center-safe justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto"
           role="dialog"
           aria-modal="true"
           aria-labelledby="confirm-delete-title"
@@ -816,6 +817,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
         <div className="absolute -top-32 -right-32 w-[30rem] h-[30rem] bg-blue-600/20 rounded-full blur-[100px] pointer-events-none" />
       </div>
 
+      <DailyBrief />
       <FinanceAlerts refreshKey={lastUpdated?.getTime() ?? 0} />
 
       {/* KPI CARDS */}

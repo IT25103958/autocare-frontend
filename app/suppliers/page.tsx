@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import Link from "next/link";
 import { useAuth } from "../context/AuthContext";
 import api from "../../utils/axiosInstance";
 import { getErrorMessage } from "../../utils/apiError";
@@ -415,7 +416,8 @@ export default function SuppliersPage() {
                     <th className="px-6 py-4 text-right">Open Orders</th>
                     <th className="px-6 py-4 text-right">Net Payable</th>
                   </>}
-                  <th className="px-6 py-4 text-right">Actions</th>
+                  {/* Pinned to the right so the buttons never need a sideways scroll */}
+                  <th className="px-6 py-4 text-right sticky right-0 z-[1] shadow-[-12px_0_12px_-12px_rgba(15,23,42,0.18)] bg-white">Actions</th>
                 </tr>
               </thead>
               <tbody className="text-sm font-medium text-slate-700 divide-y divide-slate-50">
@@ -423,7 +425,7 @@ export default function SuppliersPage() {
                   const f = finById.get(s.id);
                   const addable = managed.filter((c) => !s.categories.includes(c));
                   return (
-                    <tr key={s.id} className={s.status !== "ACTIVE" ? "bg-slate-50/70" : "hover:bg-slate-50/50"}>
+                    <tr key={s.id} className={`group ${s.status !== "ACTIVE" ? "bg-slate-50/70" : "hover:bg-slate-50/50"}`}>
                       <td className="px-6 py-4">
                         <p className="font-black text-slate-900">{s.companyName}</p>
                         <p className="text-[10px] font-mono text-slate-400">
@@ -453,9 +455,15 @@ export default function SuppliersPage() {
                           {f && f.pendingRefundCredit > 0 && <span className="block text-[10px] font-bold text-amber-600">after {formatLKR(f.pendingRefundCredit)} credit</span>}
                         </td>
                       </>}
-                      <td className="px-6 py-4 text-right">
+                      <td className={`px-6 py-4 text-right sticky right-0 z-[1] shadow-[-12px_0_12px_-12px_rgba(15,23,42,0.18)] ${s.status !== "ACTIVE" ? "bg-slate-50" : "bg-white group-hover:bg-slate-50"}`}>
                         <div className="flex justify-end gap-2">
                           <button onClick={() => openDetail(s)} className="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest">Open</button>
+                          {seesMoney && (
+                            <Link href={`/payables?q=${encodeURIComponent(s.companyName)}&status=ALL`} title={`All bills from ${s.companyName}`}
+                              className="px-3 py-1.5 rounded-lg border border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-700 hover:border-slate-400">
+                              Invoices
+                            </Link>
+                          )}
                           {s.canManage && (
                             <button onClick={() => openEdit(s)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-[10px] font-black uppercase tracking-widest">Edit</button>
                           )}
@@ -482,7 +490,8 @@ export default function SuppliersPage() {
                     </td>
                     <td className="px-6 py-4 text-right font-black">{formatLKR(financials.otherPayees.outstanding)}</td>
                     <td className={`px-6 py-4 text-right font-bold ${financials.otherPayees.overdue > 0 ? "text-red-600" : "text-slate-400"}`}>{formatLKR(financials.otherPayees.overdue)}</td>
-                    <td colSpan={3}></td>
+                    <td colSpan={2}></td>
+                    <td className="sticky right-0 z-[1] shadow-[-12px_0_12px_-12px_rgba(15,23,42,0.18)] bg-slate-50"></td>
                   </tr>
                 )}
                 {rows.length === 0 && (
@@ -502,7 +511,7 @@ export default function SuppliersPage() {
 
       {/* ADD / EDIT PROFILE */}
       {profile && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[100] flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-black text-slate-900 mb-6">{profile.id ? "Edit Supplier" : "Add Supplier"}</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -554,7 +563,7 @@ export default function SuppliersPage() {
 
       {/* SUSPEND / ACTIVATE */}
       {statusModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[100] flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-md w-full">
             <h3 className="text-xl font-black text-slate-900 mb-2">
               {statusModal.supplier.status === "ACTIVE" ? "Suspend" : "Re-activate"} {statusModal.supplier.companyName}?
@@ -576,7 +585,7 @@ export default function SuppliersPage() {
 
       {/* CREDENTIALS — shown once, with an optional email to the supplier */}
       {credentials && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[120] flex items-center-safe justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-lg w-full max-h-[92vh] overflow-y-auto">
             <h3 className="text-xl font-black text-slate-900 mb-1">{credentials.isReset ? "Password Reset" : "Portal Login Created"}</h3>
             <p className="text-sm text-slate-500 mb-5">

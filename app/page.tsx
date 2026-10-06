@@ -6,6 +6,7 @@ import { useAuth } from "./context/AuthContext";
 import api from "../utils/axiosInstance";
 import { CONTACT, WhatsAppIcon } from "./_components/contact";
 import SmartImage from "./_components/SmartImage";
+import { FloatingBookBar, FuelStation, RotatingWords, ScrollProgress, ServiceFinder, TiltCard, useInView } from "./_components/HomeExtras";
 
 // ---------------------------------------------------------------------------
 // Public home page. Photos live in public/images; each one sits on top of a
@@ -175,6 +176,7 @@ const BRANDS = [
   { name: "Mercedes-Benz", file: "mercedes-benz" },
   { name: "Perodua", file: "perodua" },
 ];
+const HERO_WORDS = ["booked in minutes.", "tracked live.", "paid online.", "fuelled 24/7."];
 const TICKER = ["Book online in 60 seconds", "Live job tracking", "Pay your bill online", "Earn reward points", "Genuine spare parts", "24-hour fuel station", "Hybrid specialists", "All makes & models"];
 
 const rupees = (n: number) => n.toLocaleString("en-LK", { maximumFractionDigits: 0 });
@@ -306,6 +308,7 @@ export default function HomePage() {
   const [packages, setPackages] = useState<ServicePackage[] | null>(null);
   const heroRef = useRef<HTMLElement>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [stepsRef, stepsInView] = useInView<HTMLDivElement>(0.4);
 
   useEffect(() => {
     api.get<ServicePackage[]>("/service-packages")
@@ -335,6 +338,8 @@ export default function HomePage() {
 
   return (
     <div className="bg-white -mb-12">
+      <ScrollProgress />
+      <FloatingBookBar href={primary.href} label={primary.label} after={heroRef} />
 
       {/* ================= HERO ================= */}
       <section ref={heroRef} onMouseMove={onHeroMove} onMouseLeave={onHeroLeave} className="relative overflow-hidden bg-[#0a1430] text-white">
@@ -344,6 +349,9 @@ export default function HomePage() {
           <div className="hero-blob absolute -bottom-56 -left-40 w-[40rem] h-[40rem] rounded-full bg-rose-600/20 blur-[120px]" style={{ animationDelay: "-7s" }} />
           <div className="absolute inset-0 opacity-[0.07] bg-[linear-gradient(to_right,white_1px,transparent_1px),linear-gradient(to_bottom,white_1px,transparent_1px)] bg-[size:64px_64px] [mask-image:radial-gradient(ellipse_at_center,black_30%,transparent_75%)]" />
           <span className="absolute inset-y-0 -left-1/4 w-1/4 bg-gradient-to-r from-transparent via-white/[0.06] to-transparent home-sweep" style={{ animationDuration: "9s" }} />
+          {/* Soft light that follows the pointer */}
+          <div className="absolute inset-0 transition-[background] duration-300"
+            style={{ background: "radial-gradient(640px circle at calc((var(--mx, 0) + 0.5) * 100%) calc((var(--my, 0) + 0.5) * 100%), rgba(56, 189, 248, 0.13), transparent 60%)" }} />
         </div>
 
         <div className="relative max-w-[1480px] mx-auto px-4 lg:px-10 py-14 lg:py-20 grid lg:grid-cols-[1.1fr_1fr] gap-14 items-center">
@@ -357,7 +365,7 @@ export default function HomePage() {
             </span>
             <h1 className="mt-6 text-4xl sm:text-5xl xl:text-7xl font-black tracking-tight leading-[1.05]">
               <span className="hero-line"><span style={{ animationDelay: "120ms" }}>Expert car care,</span></span>
-              <span className="hero-line"><span style={{ animationDelay: "260ms" }}><span className="hero-shimmer">booked in minutes.</span></span></span>
+              <RotatingWords words={HERO_WORDS} />
             </h1>
             <p className="hero-fade-up mt-6 text-lg text-slate-300 max-w-xl leading-relaxed" style={{ animationDelay: "420ms" }}>
               Book a service online, follow your vehicle from check-in to pickup, pay your bill online and earn rewards —
@@ -419,6 +427,13 @@ export default function HomePage() {
         </div>
       </div>
 
+      {/* ================= SERVICE FINDER ================= */}
+      <section className="py-20 bg-slate-50 overflow-hidden">
+        <div className="max-w-[1480px] mx-auto px-4 lg:px-10">
+          <Reveal><ServiceFinder packages={packages} bookHref={primary.href} /></Reveal>
+        </div>
+      </section>
+
       {/* ================= ABOUT ================= */}
       <section className="py-20 bg-white overflow-hidden">
         <div className="max-w-[1480px] mx-auto px-4 lg:px-10 grid lg:grid-cols-2 gap-14 lg:gap-20 items-center">
@@ -470,7 +485,8 @@ export default function HomePage() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-7">
             {SERVICES.map((s, i) => (
               <Reveal key={s.title} delay={(i % 3) * 120}>
-                <article className="group h-full flex flex-col overflow-hidden rounded-2xl bg-white shadow-md shadow-slate-900/5 ring-1 ring-slate-200 transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl hover:shadow-slate-900/15">
+                <TiltCard>
+                <article className="group h-full flex flex-col overflow-hidden rounded-2xl bg-white shadow-md shadow-slate-900/5 ring-1 ring-slate-200 transition-shadow duration-500 hover:shadow-2xl hover:shadow-slate-900/15">
                   <div className={`relative h-56 overflow-hidden bg-gradient-to-br ${s.tone}`}>
                     <div className="absolute inset-0 opacity-20 bg-[radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] bg-[size:18px_18px]" aria-hidden="true" />
                     <div className="absolute inset-0 transition-transform duration-700 group-hover:scale-110">
@@ -492,6 +508,7 @@ export default function HomePage() {
                     </Link>
                   </div>
                 </article>
+                </TiltCard>
               </Reveal>
             ))}
           </div>
@@ -547,6 +564,18 @@ export default function HomePage() {
         </div>
       </section>
 
+      {/* ================= FUEL STATION ================= */}
+      <section className="relative py-20 bg-[#0a1430] text-white overflow-hidden">
+        <div className="absolute inset-0" aria-hidden="true">
+          <div className="hero-blob absolute -top-32 -left-24 w-[34rem] h-[34rem] rounded-full bg-amber-500/15 blur-[120px]" />
+          <div className="hero-blob absolute -bottom-40 right-0 w-[30rem] h-[30rem] rounded-full bg-rose-600/15 blur-[120px]" style={{ animationDelay: "-6s" }} />
+          <div className="absolute inset-0 opacity-[0.05] bg-[radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] bg-[size:22px_22px]" />
+        </div>
+        <div className="relative max-w-[1480px] mx-auto px-4 lg:px-10">
+          <FuelStation />
+        </div>
+      </section>
+
       {/* ================= WHY US ================= */}
       <section className="py-20 bg-slate-50 overflow-hidden">
         <div className="max-w-[1480px] mx-auto px-4 lg:px-10 grid lg:grid-cols-2 gap-14 items-center">
@@ -578,8 +607,8 @@ export default function HomePage() {
         <div className="absolute inset-0 opacity-[0.06] bg-[radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] bg-[size:22px_22px]" aria-hidden="true" />
         <div className="relative max-w-[1480px] mx-auto px-4 lg:px-10">
           <SectionTitle eyebrow="Simple from start to finish" title="How It Works" light />
-          <div className="relative grid sm:grid-cols-2 lg:grid-cols-4 gap-10">
-            <div className="hidden lg:block absolute top-10 left-[12%] right-[12%] h-0.5 bg-gradient-to-r from-blue-500 via-sky-400 to-rose-500 opacity-60" aria-hidden="true" />
+          <div ref={stepsRef} className="relative grid sm:grid-cols-2 lg:grid-cols-4 gap-10">
+            <div className={`hidden lg:block absolute top-10 left-[12%] right-[12%] h-0.5 origin-left bg-gradient-to-r from-blue-500 via-sky-400 to-rose-500 opacity-60 transition-transform duration-[1800ms] ease-out ${stepsInView ? "scale-x-100" : "scale-x-0"}`} aria-hidden="true" />
             {STEPS.map((s, i) => (
               <Reveal key={s.title} delay={i * 150} className="relative text-center">
                 <div className="relative mx-auto w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-800 ring-4 ring-[#0a1430] flex items-center justify-center shadow-xl shadow-blue-950/50 transition-transform duration-300 hover:-translate-y-1 hover:rotate-3">

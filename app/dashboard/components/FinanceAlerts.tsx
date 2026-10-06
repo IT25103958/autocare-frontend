@@ -15,7 +15,8 @@ interface FinanceAlert {
 const SHOWN = 5;
 
 // Risk & fraud alerts for the finance office: overdue instalments, old unpaid
-// invoices, day-close variances, off-hours payments and suspicious expenses.
+// invoices, day-close variances, off-hours payments, suspicious expenses and
+// attendants whose voids, cash shortages or unrecorded litres stand out.
 export default function FinanceAlerts({ refreshKey = 0 }: { refreshKey?: number | string }) {
   const [alerts, setAlerts] = useState<FinanceAlert[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -35,7 +36,7 @@ export default function FinanceAlerts({ refreshKey = 0 }: { refreshKey?: number 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
           <h3 id="finance-alerts-title" className="text-lg font-black text-slate-900">Risk & Fraud Alerts</h3>
-          <p className="text-xs font-semibold text-slate-500 mt-1">Checked against the live books: receivables, day-close, counter payments and expenses.</p>
+          <p className="text-xs font-semibold text-slate-500 mt-1">Checked against the live books: receivables, day-close, counter payments, expenses and fuel attendants&apos; patterns.</p>
         </div>
         {alerts && alerts.length > 0 && (
           <span className={`px-3 py-1 rounded-full text-xs font-black ${high > 0 ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"}`}>

@@ -326,7 +326,7 @@ export default function FuelSupplyChainPage() {
 
       {/* SUPERVISOR: REQUEST NEW DELIVERY MODAL */}
       {orderModal.isOpen && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[70] flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-md w-full border border-slate-200">
             <h3 className="text-xl font-black text-slate-900 mb-6">Request Fuel Delivery</h3>
             <div className="space-y-4">
@@ -381,7 +381,7 @@ export default function FuelSupplyChainPage() {
 
       {/* SUPPLIER: CONFIRM PRICE & DISPATCH MODAL */}
       {dispatchModal.isOpen && dispatchModal.delivery && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[70] flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-md w-full border border-slate-200">
             <h3 className="text-xl font-black text-slate-900 mb-1">Confirm Your Price</h3>
             <p className="text-xs font-bold text-slate-500 mb-6 uppercase tracking-widest">{dispatchModal.delivery.fuelType} • {dispatchModal.delivery.litersOrdered}L</p>
@@ -403,7 +403,7 @@ export default function FuelSupplyChainPage() {
 
       {/* SUPERVISOR: RECEIVE + MEASURE + OPTIONAL PUMP PRICE MODAL */}
       {receiveModal.isOpen && receiveModal.delivery && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[70] flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-md w-full border border-slate-200">
             <h3 className="text-xl font-black text-slate-900 mb-1">Receive Bowser Delivery</h3>
             <p className="text-xs font-bold text-slate-500 mb-6 uppercase tracking-widest">{receiveModal.delivery.fuelType} • Ordered {receiveModal.delivery.litersOrdered}L</p>
@@ -452,7 +452,7 @@ export default function FuelSupplyChainPage() {
 
       {/* CANCEL / DECLINE MODAL */}
       {cancelModal && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[70] flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-md w-full border border-slate-200">
             <h3 className="text-xl font-black text-slate-900 mb-1">{isSupervisor ? "Cancel Order" : "Decline Order"}</h3>
             <p className="text-xs font-bold text-slate-500 mb-6 uppercase tracking-widest">
@@ -473,7 +473,7 @@ export default function FuelSupplyChainPage() {
 
       {/* Global Alert Modal */}
       {modal.isOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[60] flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200 overflow-y-auto">
           <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full text-center">
             <h3 className="text-xl font-bold text-slate-900 mb-2">{modal.title}</h3>
             <p className="text-slate-500 text-sm mb-6 font-medium">{modal.message}</p>

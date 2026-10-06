@@ -8,6 +8,7 @@ import {
   CustomerProfile, Ticket, TicketEvent, PRIORITIES, DESKS, CATEGORY_NAMES, EVENT_LABELS,
   ticketRef, formatWhen, errorText, slaText, PriorityBadge, StatusBadge,
 } from "../_components/crm";
+import { AiChip, AiSuggestionPanel, Suggestion, aiFlagsUrgent } from "./_components/AiSuggestion";
 
 type ActionModal =
   | { kind: "resolve"; ticket: Ticket }
@@ -17,10 +18,15 @@ type ActionModal =
 
 const CRO_ROLES = ["CUSTOMER_RELATIONS_OFFICER", "SUPER_ADMIN", "SYSTEM_ADMIN"];
 
+// Overdue, escalated, marked urgent, or read as urgent by the AI.
+const needsAttention = (t: Ticket, suggestions: Record<number, Suggestion>) => t.status !== "RESOLVED"
+  && (t.escalated || t.slaBreached || t.priority === "URGENT" || aiFlagsUrgent(t, suggestions[t.ticketId]));
+
 export default function ComplaintsDesk() {
   const { user } = useAuth();
   const [isMounted, setIsMounted] = useState(false);
   const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [suggestions, setSuggestions] = useState<Record<number, Suggestion>>({});
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
@@ -58,10 +64,40 @@ export default function ComplaintsDesk() {
     }
   };
 
+  // AI suggestions are a helper: if they fail to load, the desk works as before.
+  const fetchSuggestions = async () => {
+    try {
+      const res = await api.get<Suggestion[]>("/complaints/suggestions");
+      setSuggestions(Object.fromEntries(res.data.map(s => [s.ticketId, s])));
+    } catch {
+      setSuggestions({});
+    }
+  };
+
+  const askAi = async (ticket: Ticket) => {
+    try {
+      const res = await api.post<Suggestion>(`/complaints/${ticket.ticketId}/suggestion`);
+      setSuggestions(prev => ({ ...prev, [ticket.ticketId]: res.data }));
+    } catch (err) {
+      flash("error", errorText(err, "Couldn't ask the AI."));
+    }
+  };
+
   useEffect(() => {
     setIsMounted(true);
-    if (user) fetchTickets();
+    if (user) {
+      fetchTickets();
+      fetchSuggestions();
+    }
   }, [user]);
+
+  // While the AI is still reading some tickets, check back every few seconds.
+  const anyPending = Object.values(suggestions).some(s => s.status === "PENDING");
+  useEffect(() => {
+    if (!anyPending) return;
+    const id = setInterval(fetchSuggestions, 4000);
+    return () => clearInterval(id);
+  }, [anyPending]);
 
   const flash = (type: "ok" | "error", text: string) => {
     setNotice({ type, text });
@@ -155,6 +191,7 @@ export default function ComplaintsDesk() {
           issueDescription: logForm.issueDescription.trim(),
         });
         setTickets(prev => [res.data, ...prev]);
+        fetchSuggestions(); // shows "AI is reading" and starts checking back
         flash("ok", `${ticketRef(res.data.ticketId)} logged for ${res.data.customer.name}.`);
       }
       setModal(null);
@@ -168,24 +205,24 @@ export default function ComplaintsDesk() {
 
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const rank = (t: Ticket) => (t.status === "RESOLVED" ? 2 : t.slaBreached || t.escalated ? 0 : 1);
+    const rank = (t: Ticket) => (t.status === "RESOLVED" ? 2 : t.slaBreached || t.escalated || aiFlagsUrgent(t, suggestions[t.ticketId]) ? 0 : 1);
     return tickets
       .filter(t => statusFilter === "ALL" ? true : statusFilter === "ACTIVE" ? t.status !== "RESOLVED" : t.status === statusFilter)
       .filter(t => priorityFilter === "ALL" || t.priority === priorityFilter)
-      .filter(t => !attentionOnly || (t.status !== "RESOLVED" && (t.escalated || t.slaBreached || t.priority === "URGENT")))
+      .filter(t => !attentionOnly || needsAttention(t, suggestions))
       .filter(t => !q || [ticketRef(t.ticketId), t.customer?.name, t.customer?.vehicleRegNo, t.issueDescription, t.assignedStaff]
         .some(v => v?.toLowerCase().includes(q)))
       .sort((a, b) =>
         rank(a) - rank(b)
         || PRIORITIES.indexOf(b.priority) - PRIORITIES.indexOf(a.priority)
         || new Date(b.dateReported).getTime() - new Date(a.dateReported).getTime());
-  }, [tickets, search, statusFilter, priorityFilter, attentionOnly]);
+  }, [tickets, suggestions, search, statusFilter, priorityFilter, attentionOnly]);
 
   const counts = useMemo(() => ({
     active: tickets.filter(t => t.status !== "RESOLVED").length,
-    attention: tickets.filter(t => t.status !== "RESOLVED" && (t.escalated || t.slaBreached || t.priority === "URGENT")).length,
+    attention: tickets.filter(t => needsAttention(t, suggestions)).length,
     unassigned: tickets.filter(t => t.status !== "RESOLVED" && !t.assignedStaff).length,
-  }), [tickets]);
+  }), [tickets, suggestions]);
 
   if (!isMounted) return null;
 
@@ -280,6 +317,7 @@ export default function ComplaintsDesk() {
                       <td className="px-5 py-4 max-w-[320px]">
                         <div className="text-[10px] font-black uppercase tracking-widest text-slate-500 mb-1">{CATEGORY_NAMES[ticket.category] || ticket.category}</div>
                         <div className="text-slate-600 line-clamp-2">{ticket.issueDescription}</div>
+                        <AiChip ticket={ticket} suggestion={suggestions[ticket.ticketId]} />
                       </td>
 
                       <td className="px-5 py-4 whitespace-nowrap">
@@ -357,7 +395,7 @@ export default function ComplaintsDesk() {
 
       {/* TICKET DETAIL + TIMELINE */}
       {detail && (
-        <div className="fixed inset-0 z-40 flex justify-end bg-slate-900/40 backdrop-blur-sm" onClick={() => setDetail(null)}>
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-sm" onClick={() => setDetail(null)}>
           <aside role="dialog" aria-modal="true" aria-labelledby="ticket-title" className="w-full max-w-lg h-full bg-white shadow-2xl overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="sticky top-0 bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between">
               <h2 id="ticket-title" className="text-lg font-black text-slate-900 font-mono">{ticketRef(detail.ticketId)}</h2>
@@ -381,6 +419,9 @@ export default function ComplaintsDesk() {
                 <p className="text-xs font-bold text-slate-500 mb-1">Issue</p>
                 <p className="text-sm text-slate-700 whitespace-pre-wrap">{detail.issueDescription}</p>
               </div>
+              <AiSuggestionPanel ticket={detail} suggestion={suggestions[detail.ticketId]} canAssign={isCro} canAct={canAct}
+                onUseDesk={desk => handleAssign(detail, desk)} onUsePriority={value => handlePriority(detail, value)}
+                onAskAgain={() => askAi(detail)} />
               {detail.resolutionNote && (
                 <div className="p-3 rounded-xl bg-green-50 border border-green-200 text-sm text-green-800">
                   <span className="font-bold">Resolution: </span>{detail.resolutionNote}
@@ -413,7 +454,7 @@ export default function ComplaintsDesk() {
 
       {/* ACTION MODALS */}
       {modal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="action-title">
+        <div className="fixed inset-0 z-50 flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="action-title">
           <div className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-lg w-full border border-slate-200">
             <h3 id="action-title" className="text-xl font-black text-slate-900 mb-1">
               {modal.kind === "resolve" ? `Resolve ${ticketRef(modal.ticket.ticketId)}`

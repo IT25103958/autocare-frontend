@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "theme:css": "node scripts/build-dark-theme.mjs",
+    "predev": "node scripts/build-dark-theme.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/build-dark-theme.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

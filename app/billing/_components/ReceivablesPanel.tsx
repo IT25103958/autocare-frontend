@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import api from "../../../utils/axiosInstance";
+import InvoiceCustomer from "./InvoiceCustomer";
 import RepaymentPlanDialog from "./RepaymentPlanDialog";
 import { FREQUENCY_LABEL, Invoice, Receivables, ReceivableRow, downloadCsv, fmtDay, lkr } from "./billing";
 
@@ -70,9 +71,11 @@ export default function ReceivablesPanel({ canManage, refreshKey, search, onColl
               {rows.map(row => {
                 const { invoice: inv, plan } = row;
                 return (
-                  <tr key={inv.invoiceId} className="border-b border-slate-50 align-top">
+                  <tr key={inv.invoiceId} data-focus={inv.invoiceNumber} className="border-b border-slate-50 align-top">
                     <td className="px-5 py-3"><p className="font-mono text-xs font-bold text-slate-900">{inv.invoiceNumber}</p><p className="text-xs text-slate-500 max-w-[220px]">{inv.description}</p></td>
-                    <td className="px-5 py-3"><p className="font-bold text-slate-900">{inv.customerName}</p>{inv.vehicleRegNo && <p className="text-xs font-mono text-slate-500">{inv.vehicleRegNo}</p>}</td>
+                    <td className="px-5 py-3">
+                      <InvoiceCustomer invoice={inv} canEdit={canManage} onSaved={text => { onNotice(text); setReload(r => r + 1); }} />
+                    </td>
                     <td className="px-5 py-3"><p className={`font-black tabular-nums ${row.ageDays > 60 ? "text-red-700" : row.ageDays > 30 ? "text-orange-700" : "text-slate-900"}`}>{row.ageDays} day{row.ageDays === 1 ? "" : "s"}</p><p className="text-xs text-slate-500">since {fmtDay(inv.issuedAt)}</p></td>
                     <td className="px-5 py-3 text-right"><p className="font-black tabular-nums text-red-700">{lkr(inv.balanceDue)}</p>{inv.amountPaid > 0 && <p className="text-xs text-slate-500 tabular-nums">{lkr(inv.amountPaid)} paid</p>}</td>
                     <td className="px-5 py-3">

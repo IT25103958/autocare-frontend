@@ -74,7 +74,7 @@ export default function CollectPaymentDialog({ invoice, onClose, onPaid }: {
     || pts > maxPoints;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="collect-title">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="collect-title">
       <form onSubmit={save} className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-lg w-full border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
         <div>
           <h3 id="collect-title" className="text-xl font-black text-slate-900">Collect Payment</h3>

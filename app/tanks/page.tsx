@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import RunOutForecast from "../_components/RunOutForecast";
 import { useAuth } from "../context/AuthContext";
 import api from "../../utils/axiosInstance";
 import { getErrorMessage } from "../../utils/apiError";
@@ -54,6 +56,8 @@ const effectiveReorderLevel = (t: FuelTank) => t.reorderLevel ?? t.capacity * 0.
 export default function WetStockPage() {
   const { user } = useAuth();
   const canOperate = user?.role === "FUEL_STATION_SUPERVISOR" || user?.role === "SUPER_ADMIN";
+  const canSeeForecast = canOperate || user?.role === "SYSTEM_ADMIN" || user?.role === "EXECUTIVE_OWNER";
+  const router = useRouter();
 
   const [tanks, setTanks] = useState<FuelTank[]>([]);
   const [dips, setDips] = useState<TankDipReading[]>([]);
@@ -193,6 +197,11 @@ export default function WetStockPage() {
               </div>
             )}
           </div>
+        )}
+
+        {canSeeForecast && (
+          <RunOutForecast endpoint="/insights/fuel-forecast" title="Fuel Run-out Forecast"
+            onOrder={canOperate ? () => router.push("/fuel-deliveries") : undefined} orderLabel="Order fuel" />
         )}
 
         <div className={`grid grid-cols-1 ${canOperate ? "lg:grid-cols-3" : ""} gap-8`}>
@@ -472,7 +481,7 @@ export default function WetStockPage() {
 
       {/* DIP RESULT MODAL */}
       {dipResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-sm w-full border border-slate-200">
             <h3 className={`text-xl font-black mb-3 ${dipResult.withinTolerance ? "text-emerald-700" : "text-red-700"}`}>
               {dipResult.withinTolerance ? "Dip Within Tolerance" : "Dip Variance Flagged"}

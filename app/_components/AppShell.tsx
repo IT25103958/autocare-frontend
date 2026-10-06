@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import api from "../../utils/axiosInstance";
 import SiteFooter from "./SiteFooter";
+import ThemeToggle from "./ThemeToggle";
 
 // ---------------------------------------------------------------------------
 // Navigation model. Each role gets sections (menus) of related pages. The header
@@ -28,6 +29,8 @@ const L = {
   pos: { name: "Retail POS", href: "/pos", icon: "pos", hint: "Counter sales & receipts" },
   billing: { name: "Billing", href: "/billing", icon: "billing", hint: "Invoices, receivables & day close" },
   payables: { name: "Payables", href: "/payables", icon: "payables", hint: "Supplier bills & debt" },
+  // The payables ledger opened on its Fuel tab.
+  fuelInvoices: { name: "Fuel Invoices", href: "/payables?category=FUEL", icon: "payables", hint: "Bills from fuel suppliers" },
   expenses: { name: "Expenses", href: "/expenses", icon: "payables", hint: "Daily running costs" },
   payroll: { name: "Payroll", href: "/salary", icon: "payroll", hint: "Salaries & payslips" },
   suppliers: { name: "Suppliers", href: "/suppliers", icon: "suppliers", hint: "Supplier records & logins" },
@@ -76,7 +79,7 @@ function navFor(role: string, supplierCategories: string[]): NavItem[] {
       return [
         dash,
         menu("Finance", "finance", [L.billing, L.payables, L.expenses, L.payroll, L.reports, L.suppliers]),
-        menu("Fuel Station", "fuel", [L.tanks, L.fuelDeliveries]),
+        menu("Fuel Station", "fuel", [L.tanks, L.fuelDeliveries, L.fuelInvoices]),
         menu("Returns & Support", "ticket", [L.warranty, named(L.rma, "Refunds (RMA)"), L.tickets]),
         myWork(named(L.roster, "Roster", "Shifts & attendance (read-only)"), L.myPayslips),
       ];
@@ -136,7 +139,7 @@ function quickFor(role: string): NavLink[] {
     case "EXECUTIVE_OWNER":
       return [named(L.reports, "Reports"), named(L.billing, "Billing"), named(L.jobCards, "Job Cards")];
     case "ACCOUNTS_FINANCE_OFFICER":
-      return [named(L.billing, "Collect Payment"), named(L.expenses, "Log Expense"), named(L.reports, "Reports")];
+      return [named(L.billing, "Collect Payment"), named(L.payables, "Supplier Invoices"), named(L.expenses, "Log Expense"), named(L.reports, "Reports")];
     case "SERVICE_CENTER_MANAGER":
       return [named(L.jobCards, "Job Cards"), named(L.roster, "Technician Roster")];
     case "TECHNICIAN":
@@ -692,6 +695,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             )}
 
             <div className="ml-auto flex items-center gap-2 lg:gap-4 shrink-0">
+              <ThemeToggle />
               {showNav ? (
                 <>
                   <AccountMenu />
@@ -733,7 +737,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {mobileOpen && <MobileMenu items={items} current={current} onClose={() => setMobileOpen(false)} onLogout={logout} />}
 
       <main className="flex-1 relative">
-        <div className="relative z-10">{children}</div>
+        {/* No z-index here: it would trap page modals underneath the sticky header. */}
+        <div className="relative">{children}</div>
       </main>
 
       <SiteFooter />

@@ -31,7 +31,10 @@ export default function JobDetailDialog({ booking, onClose }: { booking: Booking
             <div><dt className="text-xs font-bold text-slate-500">Appointment</dt><dd className="text-slate-900">{fmtWhen(booking.preferredDate)}</dd></div>
             <div><dt className="text-xs font-bold text-slate-500">Technician</dt><dd className="text-slate-900">{booking.technicianName || "Not assigned"}</dd></div>
             <div><dt className="text-xs font-bold text-slate-500">Bay</dt><dd className="text-slate-900">{booking.assignedServiceBay || "—"}</dd></div>
-            <div><dt className="text-xs font-bold text-slate-500">Customer account</dt><dd className="text-slate-900">{booking.customerUsername || "Walk-in"}</dd></div>
+            <div><dt className="text-xs font-bold text-slate-500">Customer</dt><dd className="text-slate-900">
+              {booking.customerUsername ? `${booking.customerUsername} (web account)` : booking.walkInName ? `${booking.walkInName} (walk-in)` : "Walk-in, name not recorded"}
+              {booking.walkInPhone && <a href={`tel:${booking.walkInPhone}`} className="block text-xs text-slate-600 hover:text-blue-700">{booking.walkInPhone}</a>}
+            </dd></div>
             <div><dt className="text-xs font-bold text-slate-500">Quoted</dt><dd className="text-slate-900 tabular-nums">{booking.quotedPrice != null ? rupees(booking.quotedPrice) : "—"}</dd></div>
           </dl>
 

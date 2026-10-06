@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import api from "../../utils/axiosInstance";
 import { getErrorMessage as extractErrorMessage } from "../../utils/apiError";
@@ -306,7 +307,54 @@ function exportRetailCSV(rows: RetailTransaction[]) {
 
 type TabType = "PAYABLES" | "RMA_CREDITS" | "REVENUE";
 
-export default function PayablesDashboard() {
+// Fuel bills get their own tab; equipment and maintenance bills share "Other".
+type CategoryFilter = "ALL" | "FUEL" | "SPARE_PARTS" | "OTHER";
+const CATEGORY_TABS: { value: CategoryFilter; label: string }[] = [
+  { value: "ALL", label: "All" },
+  { value: "FUEL", label: "Fuel" },
+  { value: "SPARE_PARTS", label: "Spare parts" },
+  { value: "OTHER", label: "Other" },
+];
+const categoryOf = (inv: AccountsPayable): CategoryFilter =>
+  inv.supplyCategory === "FUEL" || inv.supplyCategory === "SPARE_PARTS" ? inv.supplyCategory : "OTHER";
+
+type SortOrder = "NEWEST" | "OLDEST" | "DUE_SOON" | "BALANCE";
+const SORTS: { value: SortOrder; label: string }[] = [
+  { value: "NEWEST", label: "Newest first" },
+  { value: "OLDEST", label: "Oldest first" },
+  { value: "DUE_SOON", label: "Due soonest" },
+  { value: "BALANCE", label: "Largest balance" },
+];
+
+const STATUS_FILTERS: PayablesFilter[] = ["OUTSTANDING", "OVERDUE", "PAID", "ALL"];
+const CATEGORY_VALUES = CATEGORY_TABS.map((t) => t.value);
+
+// Links can open the ledger already filtered, e.g. the nav's "Fuel Invoices"
+// (/payables?category=FUEL) or a supplier's "Invoices" (/payables?q=Ceypetco&status=ALL).
+// Keyed on the query so following another such link while here starts fresh.
+export default function PayablesPage() {
+  return (
+    <Suspense>
+      <PayablesFromUrl />
+    </Suspense>
+  );
+}
+
+function PayablesFromUrl() {
+  const params = useSearchParams();
+  const status = params.get("status") as PayablesFilter | null;
+  const category = params.get("category") as CategoryFilter | null;
+  return (
+    <PayablesDashboard key={params.toString()}
+      initialStatus={status && STATUS_FILTERS.includes(status) ? status : "OUTSTANDING"}
+      initialCategory={category && CATEGORY_VALUES.includes(category) ? category : "ALL"}
+      initialSearch={params.get("q") ?? ""} />
+  );
+}
+
+function PayablesDashboard({ initialStatus, initialCategory, initialSearch }: {
+  initialStatus: PayablesFilter; initialCategory: CategoryFilter; initialSearch: string;
+}) {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>("PAYABLES");
 
@@ -330,8 +378,10 @@ export default function PayablesDashboard() {
   const [historyModal, setHistoryModal] = useState<AccountsPayable | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState>(CLOSED_CONFIRM);
 
-  const [payablesFilter, setPayablesFilter] = useState<PayablesFilter>("OUTSTANDING");
-  const [payablesSearch, setPayablesSearch] = useState("");
+  const [payablesFilter, setPayablesFilter] = useState<PayablesFilter>(initialStatus);
+  const [payablesSearch, setPayablesSearch] = useState(initialSearch);
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>(initialCategory);
+  const [sortOrder, setSortOrder] = useState<SortOrder>("NEWEST");
   const [rmaSearch, setRmaSearch] = useState("");
   const [workshopSearch, setWorkshopSearch] = useState("");
   const [retailSearch, setRetailSearch] = useState("");
@@ -653,7 +703,8 @@ export default function PayablesDashboard() {
     };
   }, [invoices, retailRevenue, workshopRevenue, rmas, salaries, handovers]);
 
-  const filteredInvoices = useMemo(() => {
+  // Status + search first; the category tabs then show how many of those each holds.
+  const statusMatchedInvoices = useMemo(() => {
     const q = payablesSearch.trim().toLowerCase();
     return invoices.filter((inv) => {
       const { balance, status } = getInvoiceStatus(inv);
@@ -666,7 +717,27 @@ export default function PayablesDashboard() {
       return matchesFilter && matchesSearch;
     });
   }, [invoices, payablesFilter, payablesSearch]);
+
+  const categoryCounts = useMemo(() => {
+    const counts: Record<CategoryFilter, number> = { ALL: statusMatchedInvoices.length, FUEL: 0, SPARE_PARTS: 0, OTHER: 0 };
+    statusMatchedInvoices.forEach((inv) => { counts[categoryOf(inv)]++; });
+    return counts;
+  }, [statusMatchedInvoices]);
+
+  // Newest first by default: invoice numbers rise as bills are added.
+  const filteredInvoices = useMemo(() => {
+    const list = categoryFilter === "ALL" ? [...statusMatchedInvoices] : statusMatchedInvoices.filter((inv) => categoryOf(inv) === categoryFilter);
+    const compare: Record<SortOrder, (a: AccountsPayable, b: AccountsPayable) => number> = {
+      NEWEST: (a, b) => b.invoiceId - a.invoiceId,
+      OLDEST: (a, b) => a.invoiceId - b.invoiceId,
+      DUE_SOON: (a, b) => a.dueDate.localeCompare(b.dueDate) || b.invoiceId - a.invoiceId,
+      BALANCE: (a, b) => getInvoiceStatus(b).balance - getInvoiceStatus(a).balance || b.invoiceId - a.invoiceId,
+    };
+    return list.sort(compare[sortOrder]);
+  }, [statusMatchedInvoices, categoryFilter, sortOrder]);
   const invoicesPagination = usePagination(filteredInvoices, 8);
+  // A new filter or order starts again from page 1.
+  const showFirstPage = () => invoicesPagination.setPage(1);
 
   const filteredRmas = useMemo(() => {
     const q = rmaSearch.trim().toLowerCase();
@@ -822,16 +893,40 @@ export default function PayablesDashboard() {
                 <p className="text-xs font-medium text-slate-500 mt-1">Verified supplier bills, purchase order liabilities, and payment fulfillment.</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <SearchInput value={payablesSearch} onChange={setPayablesSearch} placeholder="Search supplier or invoice #..." ariaLabel="Search invoices" className="w-56" />
+                <SearchInput value={payablesSearch} onChange={(v) => { setPayablesSearch(v); showFirstPage(); }} placeholder="Search supplier or invoice #..." ariaLabel="Search invoices" className="w-56" />
                 <div className="flex bg-slate-100 rounded-xl p-1 gap-1">
-                  {(["OUTSTANDING", "OVERDUE", "PAID", "ALL"] as PayablesFilter[]).map((f) => (
-                    <button key={f} onClick={() => setPayablesFilter(f)}
+                  {STATUS_FILTERS.map((f) => (
+                    <button key={f} onClick={() => { setPayablesFilter(f); showFirstPage(); }}
                       className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-colors ${payablesFilter === f ? "bg-slate-900 text-white shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>
                       {f}
                     </button>
                   ))}
                 </div>
               </div>
+            </div>
+
+            {/* Category tabs (fuel bills on their own) and sort order */}
+            <div className="px-8 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-2" role="tablist" aria-label="Invoice category">
+                {CATEGORY_TABS.map((t) => {
+                  const active = categoryFilter === t.value;
+                  return (
+                    <button key={t.value} role="tab" aria-selected={active} onClick={() => { setCategoryFilter(t.value); showFirstPage(); }}
+                      className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                        active ? (t.value === "FUEL" ? "bg-amber-500 text-white" : "bg-slate-900 text-white") : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+                      {t.label}
+                      <span className={`min-w-5 px-1.5 rounded-full text-[10px] font-black ${active ? "bg-white/25" : "bg-white text-slate-500"}`}>{categoryCounts[t.value]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-500">
+                Sort
+                <select value={sortOrder} onChange={(e) => { setSortOrder(e.target.value as SortOrder); showFirstPage(); }}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-bold text-slate-700 outline-none focus:border-blue-500">
+                  {SORTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </label>
             </div>
 
             <div className="overflow-x-auto">
@@ -1137,7 +1232,7 @@ export default function PayablesDashboard() {
 
           {/* GENERIC CONFIRM MODAL (delete + full-settlement confirm) */}
           {confirmState.isOpen && (
-            <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="confirm-title"
+            <div className="fixed inset-0 z-[110] flex items-center-safe justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="confirm-title"
               onKeyDown={(e) => { if (e.key === "Escape" && !confirmState.pending) setConfirmState(CLOSED_CONFIRM); }}>
               <div className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-sm w-full border border-slate-200 text-center">
                 <div className={`flex items-center justify-center w-12 h-12 rounded-full mb-4 mx-auto ${confirmState.tone === "danger" ? "bg-red-100 text-red-600" : "bg-blue-100 text-blue-600"}`}>
@@ -1158,7 +1253,7 @@ export default function PayablesDashboard() {
 
           {/* ADD UTILITY/FUEL INVOICE MODAL */}
           {isFormOpen && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="add-invoice-title">
+            <div className="fixed inset-0 z-[100] flex items-center-safe justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="add-invoice-title">
               <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full">
                 <div className="flex justify-between items-center mb-6">
                   <div>
@@ -1204,7 +1299,7 @@ export default function PayablesDashboard() {
 
           {/* PAYMENT HISTORY MODAL — now reachable for PAID invoices too, since they no longer disappear from the ledger */}
           {historyModal && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="history-title"
+            <div className="fixed inset-0 z-[100] flex items-center-safe justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="history-title"
               onKeyDown={(e) => { if (e.key === "Escape") setHistoryModal(null); }}>
               <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-lg w-full border border-slate-200">
                 <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
@@ -1231,7 +1326,7 @@ export default function PayablesDashboard() {
 
           {/* CREDIT NOTE / OFFSET MODAL */}
           {settlementModal.isOpen && settlementModal.rma && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="settlement-title">
+            <div className="fixed inset-0 z-[100] flex items-center-safe justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="settlement-title">
               <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-lg w-full border border-slate-200">
                 <div className="flex justify-between items-center mb-6">
                   <div>

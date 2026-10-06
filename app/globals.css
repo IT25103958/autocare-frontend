@@ -1,9 +1,17 @@
 @import "tailwindcss";
 
-/* Force a clean, Light Mode canvas system-wide */
+/* Light by default; html.dark (set by the theme switcher) turns on dark mode.
+   Most pages were written with light colours only, so dark-theme.css swaps
+   those classes for dark ones; `dark:` utilities work too. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #f8fafc; /* Tailwind slate-50 */
   --foreground: #0f172a; /* Tailwind slate-900 */
+}
+.dark {
+  --background: #070d1a;
+  --foreground: #f1f5f9;
 }
 
 @theme inline {
@@ -13,10 +21,8 @@
   --font-mono: var(--font-geist-mono);
 }
 
-/*
-   The dark mode media query has been INTENTIONALLY REMOVED
-   to force the application to stay in Light Mode.
-*/
+/* Changing theme repaints everything at once instead of animating each colour. */
+.theme-switching, .theme-switching * { transition: none !important; }
 
 body {
   background: var(--background);
@@ -110,3 +116,67 @@ body {
   .hero-line > span, .hero-fade-up, .hero-card-in, .hero-shimmer, .hero-blob, .home-spin-slow { animation: none; }
   .hero-layer { transform: none; transition: none; }
 }
+
+/* Highlights the item a link pointed at (a risk alert's "Review"), for a few seconds. */
+@keyframes focus-flash {
+  0%, 100% { outline-color: rgba(245, 158, 11, 0); background-color: transparent; }
+  20%, 70% { outline-color: rgba(245, 158, 11, 1); background-color: rgba(254, 243, 199, 0.9); }
+}
+.focus-flash {
+  outline: 3px solid rgba(245, 158, 11, 1);
+  outline-offset: -3px;
+  animation: focus-flash 1.1s ease-in-out 3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .focus-flash { animation: none; background-color: rgba(254, 243, 199, 0.9); }
+}
+
+/* --- Sign-in / sign-up pages --- */
+@property --auth-angle { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+@keyframes auth-card-in { from { opacity: 0; transform: translateY(28px) scale(0.96); filter: blur(8px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes auth-msg-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes auth-pop { 0% { transform: scale(0.4); opacity: 0; } 70% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(1); } }
+@keyframes auth-draw { to { stroke-dashoffset: 0; } }
+@keyframes auth-bar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes auth-spin-border { to { --auth-angle: 360deg; } }
+@keyframes auth-kenburns { 0% { transform: scale(1.05) translate(0, 0); } 100% { transform: scale(1.18) translate(-2%, -1.5%); } }
+@keyframes auth-photo-in { from { clip-path: inset(0 0 0 100%); opacity: 0.4; } to { clip-path: inset(0 0 0 0); opacity: 1; } }
+@keyframes auth-gradient-pan { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+@keyframes auth-needle { 0% { transform: rotate(-88deg); } 70% { transform: rotate(62deg); } 80% { transform: rotate(54deg); } 100% { transform: rotate(58deg); } }
+@keyframes auth-glow { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@keyframes auth-road { to { background-position: 0 -64px; } }
+.auth-card-in { animation: auth-card-in 900ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.auth-msg-in { animation: auth-msg-in 220ms ease-out both; }
+.auth-pop { animation: auth-pop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.auth-draw { stroke-dasharray: 48; stroke-dashoffset: 48; animation: auth-draw 600ms 250ms ease-out forwards; }
+.auth-bar { transform-origin: left center; animation: auth-bar 1.6s 900ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+/* Light running around the form box's border */
+.auth-border { background: conic-gradient(from var(--auth-angle), transparent 0deg, #3b82f6 60deg, #22d3ee 110deg, #f59e0b 160deg, transparent 220deg); animation: auth-spin-border 6s linear infinite; }
+.auth-kenburns { animation: auth-kenburns 24s ease-in-out infinite alternate; }
+.auth-photo-in { animation: auth-photo-in 1100ms cubic-bezier(0.77, 0, 0.18, 1) both; }
+.auth-gradient { background-size: 200% 200%; animation: auth-gradient-pan 6s ease-in-out infinite; }
+.auth-needle { transform-origin: 50px 50px; animation: auth-needle 2.6s 900ms cubic-bezier(0.34, 1.2, 0.64, 1) both; }
+.auth-glow { animation: auth-glow 2.4s ease-in-out infinite; }
+.auth-road { background-image: linear-gradient(to bottom, rgba(250, 204, 21, 0.7) 50%, transparent 50%); background-size: 100% 64px; animation: auth-road 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .auth-card-in, .auth-msg-in, .auth-pop, .auth-bar, .auth-border, .auth-kenburns, .auth-photo-in, .auth-gradient, .auth-glow, .auth-road { animation: none; }
+  .auth-draw { animation: none; stroke-dashoffset: 0; }
+  .auth-needle { animation: none; transform: rotate(58deg); }
+}
+
+/* --- Home page: service finder, fuel pump --- */
+@keyframes finder-card-in { from { opacity: 0; transform: perspective(1200px) rotateY(-12deg) translateX(30px) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes home-zoom { from { transform: scale(1.15); } to { transform: scale(1); } }
+@keyframes pump-flow { to { stroke-dashoffset: -40; } }
+.finder-card-in { animation: finder-card-in 650ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.home-zoom { animation: home-zoom 1400ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.pump-flow { animation: pump-flow 0.6s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .finder-card-in, .home-zoom, .pump-flow { animation: none; }
+}
+
+/* --- Payment page --- */
+@keyframes pay-in { from { opacity: 0; transform: translateY(18px) scale(0.98); } to { opacity: 1; transform: none; } }
+.pay-in { animation: pay-in 600ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.pay-msg-in { animation: auth-msg-in 220ms ease-out both; }
+@media (prefers-reduced-motion: reduce) { .pay-in, .pay-msg-in { animation: none; } }

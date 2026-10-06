@@ -28,6 +28,8 @@ const rolePermissions: Record<string, string[]> = {
   '/billing':    ['ACCOUNTS_FINANCE_OFFICER'],
   // Daily expense log.
   '/expenses':   ['ACCOUNTS_FINANCE_OFFICER'],
+  // Evidence behind an attendant's risk alert (shifts and voided sales).
+  '/attendant-review': ['ACCOUNTS_FINANCE_OFFICER'],
   // PDF / Excel finance reports.
   '/reports':    ['ACCOUNTS_FINANCE_OFFICER'],
   // Customer warranty claims (verify, replace/refund, supplier return).
@@ -85,6 +87,6 @@ export const config = {
     '/bookings/:path*', '/tanks/:path*', '/fuel/:path*', '/fuel-deliveries/:path*', '/fuel-passes/:path*', '/suppliers/:path*', '/payables/:path*',
     '/salary/:path*', '/complaints/:path*', '/customers/:path*', '/deliveries/:path*',
     '/parts/:path*', '/rma/:path*', '/support/:path*', '/roster/:path*', '/users/:path*',
-    '/pos/:path*', '/audit/:path*', '/membership/:path*', '/billing/:path*', '/expenses/:path*', '/reports/:path*', '/warranty/:path*', '/pay/:path*'
+    '/pos/:path*', '/audit/:path*', '/membership/:path*', '/billing/:path*', '/expenses/:path*', '/attendant-review/:path*', '/reports/:path*', '/warranty/:path*', '/pay/:path*'
   ],
 };

@@ -637,7 +637,7 @@ export default function SalaryDashboard() {
           </div>
 
           {confirmState.isOpen && (
-            <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="confirm-payroll-title"
+            <div className="fixed inset-0 z-[110] flex items-center-safe justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="confirm-payroll-title"
               onKeyDown={(e) => { if (e.key === "Escape" && !confirmState.pending) setConfirmState(CLOSED_CONFIRM); }}>
               <div className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-sm w-full border border-slate-200 text-center">
                 <div className="flex items-center justify-center w-12 h-12 rounded-full mb-4 mx-auto bg-blue-100 text-blue-600">

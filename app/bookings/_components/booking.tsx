@@ -5,6 +5,9 @@ export type BookingStatus = "PENDING" | "CONFIRMED" | "IN_PROGRESS" | "DELAYED" 
 export interface Booking {
   bookingID: number;
   customerUsername: string | null;
+  // Name / phone taken down for a walk-in without a web account.
+  walkInName: string | null;
+  walkInPhone: string | null;
   vehicleRegNo: string;
   servicePackage: string;
   packageId: number | null;

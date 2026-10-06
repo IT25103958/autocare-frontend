@@ -9,6 +9,7 @@ export interface Invoice {
   customerUsername: string | null;
   customerName: string | null;
   customerEmail: string | null;
+  customerPhone: string | null;
   vehicleRegNo: string | null;
   description: string;
   lineSummary: string | null;

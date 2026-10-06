@@ -56,7 +56,7 @@ export default function PayOnlineDialog({ invoice, onClose, onPaid }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="payonline-title">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="payonline-title">
       <form onSubmit={proceed} className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden max-h-[92vh] overflow-y-auto">
         <div className="bg-slate-900 text-white p-6">
           <p className="text-xs font-black uppercase tracking-widest text-slate-300">Pay online</p>

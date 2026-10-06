@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import api from "../../utils/axiosInstance";
+import { highlightFocusTarget } from "../../utils/focusTarget";
 import { useAuth } from "../context/AuthContext";
 import CollectPaymentDialog from "./_components/CollectPaymentDialog";
 import DayCloseCard from "./_components/DayCloseCard";
+import InvoiceCustomer from "./_components/InvoiceCustomer";
 import ReceivablesPanel from "./_components/ReceivablesPanel";
 import {
   Invoice, InvoiceStatusBadge, METHOD_LABEL, Payment, downloadReceipt, errText, fmtWhen, isoDate, lkr, paymentText,
@@ -20,18 +23,33 @@ interface DaySummary {
 }
 
 type Tab = "outstanding" | "receivables" | "today" | "all";
+const TABS: Tab[] = ["outstanding", "receivables", "today", "all"];
 const COLLECTORS = ["ACCOUNTS_FINANCE_OFFICER", "SUPER_ADMIN"];
 
 // Finance billing desk: bills awaiting payment, receivables by age with repayment
 // plans, the day's takings with the day-close reconciliation, and every invoice.
+// useSearchParams needs a Suspense boundary, or the production build fails for this route.
 export default function BillingPage() {
+  return (
+    <Suspense fallback={null}>
+      <BillingDesk />
+    </Suspense>
+  );
+}
+
+function BillingDesk() {
   const { user } = useAuth();
+  // A risk alert's Review link can open a given tab and day (?tab=today&date=2026-10-02).
+  const params = useSearchParams();
   const canCollect = COLLECTORS.includes(user?.role || "");
-  const [tab, setTab] = useState<Tab>("outstanding");
+  const [tab, setTab] = useState<Tab>(() => TABS.find(t => t === params.get("tab")) ?? "outstanding");
   const [outstanding, setOutstanding] = useState<Invoice[]>([]);
   const [all, setAll] = useState<Invoice[]>([]);
   const [day, setDay] = useState<DaySummary | null>(null);
-  const [dayDate, setDayDate] = useState(() => isoDate(new Date()));
+  const [dayDate, setDayDate] = useState(() => {
+    const d = params.get("date");
+    return d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : isoDate(new Date());
+  });
   // Bumped after a payment so the receivables and day-close panels refetch too.
   const [refreshKey, setRefreshKey] = useState(0);
   const [search, setSearch] = useState("");
@@ -45,6 +63,8 @@ export default function BillingPage() {
   };
 
   useEffect(() => { if (user) load(); }, [user, dayDate]);
+  // ...and scroll to the row it named (?focus=...) and highlight it.
+  useEffect(() => highlightFocusTarget(), []);
 
   const receipt = async (inv: Invoice) => {
     try {
@@ -139,7 +159,7 @@ export default function BillingPage() {
                   </thead>
                   <tbody>
                     {day?.payments.map(({ payment: p, invoiceNumber, customerName }) => (
-                      <tr key={p.paymentId} className="border-b border-slate-50">
+                      <tr key={p.paymentId} data-focus={p.receiptNumber} className="border-b border-slate-50">
                         <td className="px-5 py-2.5"><p className="font-mono text-xs font-bold text-slate-800">{p.receiptNumber}</p><p className="text-xs text-slate-500">{fmtWhen(p.paidAt)}</p></td>
                         <td className="px-5 py-2.5"><p className="font-mono text-xs text-blue-700">{invoiceNumber}</p><p className="text-slate-800">{customerName}</p></td>
                         <td className="px-5 py-2.5 text-slate-700">{paymentText(p)}</td>
@@ -175,9 +195,8 @@ export default function BillingPage() {
                     <tr key={inv.invoiceId} className="border-b border-slate-50 align-top">
                       <td className="px-5 py-3"><p className="font-mono text-xs font-bold text-slate-900">{inv.invoiceNumber}</p><p className="text-xs text-slate-500">{fmtWhen(inv.issuedAt)}</p></td>
                       <td className="px-5 py-3">
-                        <p className="font-bold text-slate-900">{inv.customerName}</p>
-                        {inv.vehicleRegNo && <p className="text-xs font-mono text-slate-500">{inv.vehicleRegNo}</p>}
-                        {inv.customerUsername && <p className="text-[10px] font-bold uppercase tracking-wider text-blue-700">Web account</p>}
+                        <InvoiceCustomer invoice={inv} canEdit={canCollect}
+                          onSaved={text => { setNotice({ type: "ok", text }); load(); setRefreshKey(k => k + 1); }} />
                       </td>
                       <td className="px-5 py-3 text-slate-700 max-w-[240px]">{inv.description}</td>
                       <td className="px-5 py-3 text-right tabular-nums">{lkr(inv.totalAmount)}</td>

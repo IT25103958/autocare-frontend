@@ -229,7 +229,7 @@ export default function FuelPassesPage() {
 
       {/* In <body>, so the page's entry animation can't offset the overlay. */}
       {shown && createPortal(
-        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`Fuel pass ${shown.vehicleRegNo}`}
+        <div className="fixed inset-0 z-[90] flex items-center-safe justify-center p-4 bg-slate-950/70 backdrop-blur-sm overflow-y-auto" role="dialog" aria-modal="true" aria-label={`Fuel pass ${shown.vehicleRegNo}`}
           onClick={e => { if (e.target === e.currentTarget) setShown(null); }}>
           <div className="w-full max-w-sm max-h-[calc(100vh-2rem)] overflow-y-auto bg-white rounded-3xl shadow-2xl text-center">
             <div className="bg-slate-900 text-white px-6 py-4 rounded-t-3xl">

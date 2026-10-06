@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import api from "../../utils/axiosInstance";
+import { highlightFocusTarget } from "../../utils/focusTarget";
 import { useAuth } from "../context/AuthContext";
 import { METHOD_LABEL, downloadCsv, errText, fmtDay, inputClass, isoDate, lkr } from "../billing/_components/billing";
 
@@ -55,10 +57,24 @@ const firstOfMonth = () => {
 
 // Daily expense log: running costs paid on the spot, by category. Supplier
 // bills paid later are handled under Payables. Entries are voided, not deleted.
+// useSearchParams needs a Suspense boundary, or the production build fails for this route.
 export default function ExpensesPage() {
+  return (
+    <Suspense fallback={null}>
+      <ExpenseLog />
+    </Suspense>
+  );
+}
+
+function ExpenseLog() {
   const { user } = useAuth();
+  // A risk alert's Review link starts the list at the expense's date (?from=...&focus=EXP-...).
+  const params = useSearchParams();
   const canWrite = WRITERS.includes(user?.role || "");
-  const [from, setFrom] = useState(firstOfMonth);
+  const [from, setFrom] = useState(() => {
+    const d = params.get("from");
+    return d && /^\d{4}-\d{2}-\d{2}$/.test(d) && d < firstOfMonth() ? d : firstOfMonth();
+  });
   const [to, setTo] = useState(() => isoDate(new Date()));
   const [data, setData] = useState<ExpenseList | null>(null);
   const [category, setCategory] = useState("ALL");
@@ -73,6 +89,9 @@ export default function ExpensesPage() {
   const [dialogError, setDialogError] = useState("");
   const [saving, setSaving] = useState(false);
   const [reload, setReload] = useState(0);
+
+  // Scroll to and highlight the expense a risk alert linked to (?focus=EXP-...).
+  useEffect(() => highlightFocusTarget(), []);
 
   useEffect(() => {
     if (!user || !from || !to) return;
@@ -226,7 +245,7 @@ export default function ExpensesPage() {
                   </thead>
                   <tbody>
                     {rows.map(e => (
-                      <tr key={e.expenseId} className={`border-b border-slate-50 align-top ${e.voided ? "opacity-60" : ""}`}>
+                      <tr key={e.expenseId} data-focus={e.expenseNumber} className={`border-b border-slate-50 align-top ${e.voided ? "opacity-60" : ""}`}>
                         <td className="px-5 py-3"><p className="font-mono text-xs font-bold text-slate-900">{e.expenseNumber}</p><p className="text-xs text-slate-500">{fmtDay(e.expenseDate)}</p></td>
                         <td className="px-5 py-3 max-w-[280px]">
                           <p className={`font-bold text-slate-900 ${e.voided ? "line-through" : ""}`}>{e.description}</p>
@@ -252,7 +271,7 @@ export default function ExpensesPage() {
       </div>
 
       {adding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="ex-add-title">
+        <div className="fixed inset-0 z-50 flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="ex-add-title">
           <form onSubmit={add} className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-lg w-full border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
             <h3 id="ex-add-title" className="text-xl font-black text-slate-900">Log an Expense</h3>
             <div className="grid grid-cols-2 gap-3">
@@ -307,7 +326,7 @@ export default function ExpensesPage() {
       )}
 
       {voiding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="ex-void-title">
+        <div className="fixed inset-0 z-50 flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="ex-void-title">
           <form onSubmit={confirmVoid} className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-md w-full border border-slate-200 space-y-4">
             <div>
               <h3 id="ex-void-title" className="text-xl font-black text-slate-900">Void {voiding.expenseNumber}?</h3>

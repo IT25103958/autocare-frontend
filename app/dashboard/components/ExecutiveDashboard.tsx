@@ -9,6 +9,7 @@ import api from "../../../utils/axiosInstance";
 import { getErrorMessage } from "../../../utils/apiError";
 import { downloadFile, isoDate } from "../../billing/_components/billing";
 import FinanceAlerts from "./FinanceAlerts";
+import DailyBrief from "./DailyBrief";
 
 // Everything on this page comes from /analytics/executive-summary, which is
 // computed from live records (payments, counter sales, fuel sales, job cards,
@@ -126,6 +127,8 @@ export default function ExecutiveDashboard({ userName }: { userName?: string }) 
 
       {data && (
         <>
+          <DailyBrief />
+
           {/* TOP LEVEL KPI CARDS */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <KpiCard title="Revenue Today" value={compact(data.revenue.today)} exact={lkr(data.revenue.today)}

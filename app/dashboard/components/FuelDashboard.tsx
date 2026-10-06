@@ -253,7 +253,7 @@ export default function FuelDashboard({ userName }: { userName?: string }) {
   const formatLKR = (amt: number) => new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR' }).format(amt);
 
   const noticeModal = notice && (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[60] flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
       <div className="bg-white rounded-3xl p-6 shadow-2xl max-w-md w-full border border-slate-200">
         <h3 className={`text-xl font-black mb-3 ${notice.tone === "success" ? "text-emerald-700" : notice.tone === "warning" ? "text-amber-700" : "text-red-700"}`}>{notice.title}</h3>
         <ul className="space-y-1.5 mb-6">
@@ -599,7 +599,7 @@ export default function FuelDashboard({ userName }: { userName?: string }) {
 
       {/* --- CLOSE SHIFT / ENTER COUNT MODAL --- */}
       {countModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl p-8 shadow-2xl max-w-sm w-full border border-slate-200">
             <h3 className="text-xl font-black text-slate-900 mb-1">
               {countModal.mode === "close" ? "Close Shift" : "Enter Shift Count"}

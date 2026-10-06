@@ -36,7 +36,7 @@ export default function AdjustStockDialog({ part, onClose, onSaved }: {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="adjust-title">
+    <div className="fixed inset-0 z-[100] flex items-center-safe justify-center bg-slate-900/60 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="adjust-title">
       <form onSubmit={save} className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-md w-full border border-slate-200 space-y-4">
         <div>
           <h3 id="adjust-title" className="text-xl font-black text-slate-900">Adjust Stock</h3>

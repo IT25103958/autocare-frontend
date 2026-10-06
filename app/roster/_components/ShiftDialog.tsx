@@ -49,7 +49,7 @@ export default function ShiftDialog({ draft, editing, staff, resources, onClose,
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-labelledby="shift-dialog-title">
+    <div className="fixed inset-0 z-50 flex items-center-safe justify-center bg-slate-900/40 backdrop-blur-sm p-4 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="shift-dialog-title">
       <form onSubmit={save} className="bg-white rounded-3xl p-6 md:p-8 shadow-2xl max-w-lg w-full border border-slate-200 space-y-4">
         <h3 id="shift-dialog-title" className="text-xl font-black text-slate-900">{editing ? "Edit Shift" : "Schedule a Shift"}</h3>
 

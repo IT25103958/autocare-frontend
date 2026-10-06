@@ -145,7 +145,7 @@ export default function FuelPassScanner({ onDetected, onClose, busy = false, err
   // Rendered into <body>: the page animates in with a transform, which would
   // otherwise anchor this overlay to the page instead of the window.
   return createPortal(
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Scan fuel pass">
+    <div className="fixed inset-0 z-[90] flex items-center-safe justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto" role="dialog" aria-modal="true" aria-label="Scan fuel pass">
       <div className="w-full max-w-md max-h-[calc(100vh-2rem)] overflow-y-auto bg-white rounded-3xl shadow-2xl">
         <div className="flex items-center justify-between px-6 pt-5 pb-4">
           <div>
