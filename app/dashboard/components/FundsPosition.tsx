@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import api from "../../../utils/axiosInstance";
 
@@ -34,9 +34,8 @@ export default function FundsPosition({ refreshKey = 0, canEdit = true }: { refr
   const [form, setForm] = useState({ openingBalance: "", asOfDate: today(), note: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [portal, setPortal] = useState<HTMLElement | null>(null);
-
-  useEffect(() => setPortal(document.body), []);
+  // document.body in the browser; null while rendering on the server.
+  const portal = useSyncExternalStore(() => () => {}, () => document.body, () => null);
 
   useEffect(() => {
     api.get<Funds>("/finance/funds")
