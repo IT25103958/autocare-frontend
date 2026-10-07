@@ -79,7 +79,11 @@ function LoginForm() {
       // new one; the backend refuses every other request until then.
       setSignedIn(true);
       setTimeout(() => {
-        window.location.href = response.data.mustChangePassword ? "/change-password" : "/";
+        // Back to the page the user was sent here from (middleware adds ?redirect=).
+        // Only internal paths, so a crafted link can't send them to another site.
+        const back = params.get("redirect");
+        const safeBack = back && back.startsWith("/") && !back.startsWith("//") && !back.includes("\\") ? back : "/";
+        window.location.href = response.data.mustChangePassword ? "/change-password" : safeBack;
       }, 450);
     } catch (e) {
       const err = e as { response?: { status?: number; data?: unknown } };
@@ -87,8 +91,8 @@ function LoginForm() {
         setServerError("Invalid username or password. Please try again.");
         setValue("password", "");
         setFocus("password");
-      } else if (err.response?.status === 403 && typeof err.response.data === "string") {
-        setServerError(err.response.data); // deactivated account
+      } else if ((err.response?.status === 403 || err.response?.status === 429) && typeof err.response.data === "string") {
+        setServerError(err.response.data); // deactivated account, or too many attempts
       } else {
         setServerError("Can't reach the server right now. Please try again in a moment.");
       }
