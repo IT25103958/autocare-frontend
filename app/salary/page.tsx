@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import api from "../../utils/axiosInstance";
 import { getErrorMessage as extractErrorMessage } from "../../utils/apiError";
@@ -135,7 +135,6 @@ function usePagination<T>(items: T[], pageSize: number) {
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
   const clampedPage = Math.min(page, totalPages);
-  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [totalPages, page]);
   const pageItems = useMemo(() => items.slice((clampedPage - 1) * pageSize, clampedPage * pageSize), [items, clampedPage, pageSize]);
   return { page: clampedPage, setPage, totalPages, pageItems };
 }
@@ -159,10 +158,9 @@ function PaginationBar<T>({ pagination, itemLabel }: { pagination: ReturnType<ty
   );
 }
 
+// document.body once in the browser; null while rendering on the server.
 function usePortalTarget() {
-  const [target, setTarget] = useState<HTMLElement | null>(null);
-  useEffect(() => { setTarget(document.body); }, []);
-  return target;
+  return useSyncExternalStore(() => () => {}, () => document.body, () => null);
 }
 
 function SearchInput({ value, onChange, placeholder, ariaLabel, className = "w-56" }: {
@@ -223,7 +221,7 @@ export default function SalaryDashboard() {
 
   const isManagement = user ? MANAGEMENT_ROLES.includes(user.role) : false;
 
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors, isSubmitting } } = useForm<PayrollFormInput, any, PayrollFormOutput>({
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors, isSubmitting } } = useForm<PayrollFormInput, unknown, PayrollFormOutput>({
     resolver: zodResolver(payrollSchema),
     mode: "onChange",
     defaultValues: { hourlyRate: 850, hoursWorked: 0, allowances: 0, deductions: 0 },
@@ -307,7 +305,8 @@ export default function SalaryDashboard() {
 
       const employee = users.find((u) => u.username === selectedEmployee);
       if (employee) {
-        setValue("technicianEmail", employee.email || `${employee.username}@lankaauto.com`);
+        // The account's real email: payslips are matched to "My Payslips" by it, so never invent one.
+        setValue("technicianEmail", employee.email ?? "");
 
         let rate = 850;
         if (employee.role === "SERVICE_CENTER_MANAGER") rate = 1500;
@@ -446,7 +445,7 @@ export default function SalaryDashboard() {
           <div className="flex items-center justify-between gap-4 px-6 py-4 bg-red-50 border border-red-200 rounded-2xl mb-6">
             <div className="flex items-center gap-3">
               <IconAlertTriangle c="w-5 h-5 text-red-500 flex-shrink-0" />
-              <p className="text-sm font-bold text-red-700">Couldn't load: {Object.keys(fetchErrors).join(", ")}. Figures below may be incomplete.</p>
+              <p className="text-sm font-bold text-red-700">Couldn&apos;t load: {Object.keys(fetchErrors).join(", ")}. Figures below may be incomplete.</p>
             </div>
             <button onClick={() => fetchAll(true)} className="text-xs font-black uppercase tracking-widest text-red-700 hover:text-red-900 whitespace-nowrap">Retry now</button>
           </div>
@@ -518,7 +517,7 @@ export default function SalaryDashboard() {
                     <label htmlFor="hourlyRate" className="block text-xs font-black text-slate-500 uppercase tracking-widest mb-1.5">Rate / Hr (LKR)</label>
                     <input id="hourlyRate" {...register("hourlyRate")} type="number" step="0.01" className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 outline-none font-bold" />
                     {suggestedRate !== null && currentRate !== suggestedRate && (
-                      <p className="text-[10px] font-bold text-amber-600 mt-1">Overridden from the role's suggested {formatLKR(suggestedRate)}.</p>
+                      <p className="text-[10px] font-bold text-amber-600 mt-1">Overridden from the role&apos;s suggested {formatLKR(suggestedRate)}.</p>
                     )}
                     {errors.hourlyRate && <p className="mt-1 text-xs font-bold text-red-500">{errors.hourlyRate.message}</p>}
                   </div>
@@ -545,7 +544,7 @@ export default function SalaryDashboard() {
                     <span>Net Payout</span>
                     <span className={liveNetSalary < 0 ? "text-red-400" : "text-emerald-400"}>{formatLKR(liveNetSalary)}</span>
                   </div>
-                  {liveNetSalary < 0 && <p className="text-[10px] font-bold text-red-400 mt-2">Deductions exceed earnings — this can't be submitted until fixed.</p>}
+                  {liveNetSalary < 0 && <p className="text-[10px] font-bold text-red-400 mt-2">Deductions exceed earnings — this can&apos;t be submitted until fixed.</p>}
                 </div>
 
                 <button type="submit" disabled={isSubmitting} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 px-4 rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-70 mt-6 uppercase tracking-widest text-xs">

@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import FinanceAlerts from "./FinanceAlerts";
 import FundsPosition from "./FundsPosition";
 import DailyBrief from "./DailyBrief";
 import api from "../../../utils/axiosInstance";
+import { getErrorMessage } from "../../../utils/apiError";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, CartesianGrid,
@@ -216,10 +217,6 @@ function usePagination<T>(items: T[], pageSize: number) {
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
   const clampedPage = Math.min(page, totalPages);
 
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [totalPages, page]);
-
   const pageItems = useMemo(
     () => items.slice((clampedPage - 1) * pageSize, clampedPage * pageSize),
     [items, clampedPage, pageSize]
@@ -234,12 +231,9 @@ function usePagination<T>(items: T[], pageSize: number) {
 // ANY ancestor (common with page-transition wrappers, sticky layouts, etc.)
 // — the browser then treats "fixed" as relative to that ancestor instead of
 // the viewport, which is why toasts can end up pinned in the wrong corner.
+// document.body once in the browser; null while rendering on the server.
 function usePortalTarget() {
-  const [target, setTarget] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    setTarget(document.body);
-  }, []);
-  return target;
+  return useSyncExternalStore(() => () => {}, () => document.body, () => null);
 }
 
 function exportHandoversCSV(rows: ShiftHandover[]) {
@@ -369,8 +363,9 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
   }, [pushToast]);
 
   useEffect(() => {
-    fetchAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Started from a callback so the loading-state updates aren't made inside the effect body.
+    Promise.resolve().then(() => fetchAll());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on open
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -388,8 +383,8 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
       setNewRule({ ruleName: "", ruleType: "TAX", percentage: 0 });
       pushToast("success", `"${newRule.ruleName}" was added and is now live on new invoices.`);
       await fetchAll();
-    } catch {
-      pushToast("error", "Couldn't save the pricing rule. Please try again.");
+    } catch (err) {
+      pushToast("error", getErrorMessage(err, "Couldn't save the pricing rule. Please try again."));
     } finally {
       setSavingRule(false);
     }
@@ -402,8 +397,8 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
       const isActive = rule.active !== undefined ? rule.active : rule.isActive;
       pushToast("success", `"${rule.ruleName}" is now ${isActive ? "inactive" : "active"}.`);
       await fetchAll();
-    } catch {
-      pushToast("error", `Couldn't update "${rule.ruleName}". Please try again.`);
+    } catch (err) {
+      pushToast("error", getErrorMessage(err, `Couldn't update "${rule.ruleName}". Please try again.`));
     } finally {
       setPendingRuleIds((prev) => {
         const next = new Set(prev);
@@ -737,7 +732,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
             </div>
             <h3 id="confirm-delete-title" className="text-lg font-black text-slate-900 mb-1.5">Delete this rule?</h3>
             <p className="text-sm text-slate-500 font-medium mb-6">
-              "{confirmDelete.ruleName}" will stop applying to new invoices immediately. This can't be undone.
+              &ldquo;{confirmDelete.ruleName}&rdquo; will stop applying to new invoices immediately. This can&apos;t be undone.
             </p>
             <div className="flex gap-3">
               <button
@@ -766,7 +761,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
           <div className="flex items-center gap-3">
             <IconAlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
             <p className="text-sm font-bold text-red-700">
-              Couldn't load: {Object.keys(fetchErrors).join(", ")}. Figures below may be incomplete.
+              Couldn&apos;t load: {Object.keys(fetchErrors).join(", ")}. Figures below may be incomplete.
             </p>
           </div>
           <button

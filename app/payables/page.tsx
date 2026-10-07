@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef, Suspense } from "react";
+import { useState, useEffect, useMemo, useCallback, Suspense, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
 import { createPortal } from "react-dom";
 import api from "../../utils/axiosInstance";
@@ -8,7 +8,6 @@ import { getErrorMessage as extractErrorMessage } from "../../utils/apiError";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useAuth } from "../context/AuthContext";
 import { downloadCsv as downloadCSV } from "../billing/_components/billing";
 
 // =============================================================================
@@ -232,7 +231,6 @@ function usePagination<T>(items: T[], pageSize: number) {
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
   const clampedPage = Math.min(page, totalPages);
-  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [totalPages, page]);
   const pageItems = useMemo(
     () => items.slice((clampedPage - 1) * pageSize, clampedPage * pageSize),
     [items, clampedPage, pageSize]
@@ -259,10 +257,9 @@ function PaginationBar<T>({ pagination, itemLabel }: { pagination: ReturnType<ty
   );
 }
 
+// document.body once in the browser; null while rendering on the server.
 function usePortalTarget() {
-  const [target, setTarget] = useState<HTMLElement | null>(null);
-  useEffect(() => { setTarget(document.body); }, []);
-  return target;
+  return useSyncExternalStore(() => () => {}, () => document.body, () => null);
 }
 
 // A flex layout (icon + input side by side) instead of an absolutely
@@ -355,7 +352,6 @@ function PayablesFromUrl() {
 function PayablesDashboard({ initialStatus, initialCategory, initialSearch }: {
   initialStatus: PayablesFilter; initialCategory: CategoryFilter; initialSearch: string;
 }) {
-  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>("PAYABLES");
 
   const [invoices, setInvoices] = useState<AccountsPayable[]>([]);
@@ -393,7 +389,7 @@ function PayablesDashboard({ initialStatus, initialCategory, initialSearch }: {
     isOpen: boolean; rma: RmaRefund | null; method: "CASH" | "OFFSET"; targetInvoiceId: number | null;
   }>({ isOpen: false, rma: null, method: "OFFSET", targetInvoiceId: null });
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<InvoiceFormInput, any, InvoiceFormOutput>({
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<InvoiceFormInput, unknown, InvoiceFormOutput>({
     resolver: zodResolver(invoiceSchema),
     mode: "onChange",
     defaultValues: { supplyCategory: "FUEL" },
@@ -478,8 +474,9 @@ function PayablesDashboard({ initialStatus, initialCategory, initialSearch }: {
   }, [pushToast]);
 
   useEffect(() => {
-    fetchAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Started from a callback so the loading-state updates aren't made inside the effect body.
+    Promise.resolve().then(() => fetchAll());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on open
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -790,7 +787,7 @@ function PayablesDashboard({ initialStatus, initialCategory, initialSearch }: {
           <div className="flex items-center justify-between gap-4 px-6 py-4 bg-red-50 border border-red-200 rounded-2xl mb-6">
             <div className="flex items-center gap-3">
               <IconAlertTriangle c="w-5 h-5 text-red-500 flex-shrink-0" />
-              <p className="text-sm font-bold text-red-700">Couldn't load: {Object.keys(fetchErrors).join(", ")}. Figures below may be incomplete.</p>
+              <p className="text-sm font-bold text-red-700">Couldn&apos;t load: {Object.keys(fetchErrors).join(", ")}. Figures below may be incomplete.</p>
             </div>
             <button onClick={() => fetchAll(true)} className="text-xs font-black uppercase tracking-widest text-red-700 hover:text-red-900 whitespace-nowrap">Retry now</button>
           </div>
