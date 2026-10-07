@@ -59,8 +59,8 @@ export default function MyPayslipsPage() {
       document.body.appendChild(link);
       link.click();
       link.parentNode?.removeChild(link);
-    } catch (err) {
-      alert("Failed to securely generate PDF.");
+    } catch {
+      alert("Couldn't download the payslip. Please try again.");
     } finally {
       setDownloadingId(null);
     }

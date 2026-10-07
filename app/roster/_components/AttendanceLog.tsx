@@ -22,6 +22,7 @@ export default function AttendanceLog({ canManage }: { canManage: boolean }) {
       .catch(err => setNotice({ type: "error", text: errorText(err, "Couldn't load attendance.") }));
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when the date range changes
   useEffect(() => { load(); }, [from, to]);
 
   const people = Array.from(new Map(shifts.map(s => [s.staffUsername || s.staffName, s.staffName])).entries())

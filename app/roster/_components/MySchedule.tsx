@@ -41,6 +41,7 @@ export default function MySchedule({ username }: { username: string }) {
     api.get<{ clockInEarlyMinutes: number }>("/roster/resources").then(res => setEarlyMinutes(res.data.clockInEarlyMinutes)).catch(() => {});
     const timer = setInterval(() => setTick(t => t + 1), 30_000); // re-evaluate the clock-in window
     return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on open
   }, []);
 
   const act = async (s: Shift, action: "acknowledge" | "clock-in" | "clock-out", done: string) => {

@@ -34,8 +34,10 @@ export default function LeaveReview({ onChanged }: { onChanged?: () => void }) {
     const note = prompt(`Approve ${l.staffName}'s leave (${fmtDay(l.fromDate)} – ${fmtDay(l.toDate)})? Any shifts in that period will be cancelled.\nOptional note:`);
     if (note === null) return;
     try {
-      const res = await api.put<{ shiftsCancelled: number }>(`/roster/leave/${l.leaveId}/approve`, { note });
-      setNotice({ type: "ok", text: `Approved. ${res.data.shiftsCancelled} shift(s) cancelled — check the week planner for coverage gaps.` });
+      const res = await api.put<{ shiftsCancelled: number; jobsReleased?: string[] }>(`/roster/leave/${l.leaveId}/approve`, { note });
+      const jobs = res.data.jobsReleased ?? [];
+      setNotice({ type: "ok", text: `Approved. ${res.data.shiftsCancelled} shift(s) cancelled — check the week planner for coverage gaps.`
+        + (jobs.length ? ` ${jobs.length} workshop job(s) went back to Job Cards to be reassigned: ${jobs.join(", ")}.` : "") });
       load();
       onChanged?.();
     } catch (err) {

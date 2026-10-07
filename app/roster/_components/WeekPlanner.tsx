@@ -39,6 +39,7 @@ export default function WeekPlanner({ staff, resources, canManage }: {
       .catch(err => setNotice({ type: "error", text: errorText(err, "Couldn't load the week.") }));
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when the week changes
   useEffect(() => { load(); }, [weekStart]);
 
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));

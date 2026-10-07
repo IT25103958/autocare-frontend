@@ -41,16 +41,17 @@ export default function RosterPage() {
     ...(hasOwnShifts ? [{ key: "mine" as Tab, label: "My Shifts" }] : []),
   ];
 
-  const [tab, setTab] = useState<Tab | null>(null);
+  // The chosen tab, or the default for this user until they pick one.
+  const [chosenTab, setTab] = useState<Tab | null>(null);
+  const tab: Tab | null = chosenTab ?? (user ? (canRead ? "today" : "mine") : null);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [resources, setResources] = useState<Resources | null>(null);
 
   useEffect(() => {
     if (!user) return;
-    setTab(prev => prev ?? (canRead ? "today" : "mine"));
     api.get<Resources>("/roster/resources").then(res => setResources(res.data)).catch(() => setResources(null));
     if (canManage) api.get<StaffMember[]>("/roster/directory").then(res => setStaff(res.data)).catch(() => setStaff([]));
-  }, [user]);
+  }, [user, canManage]);
 
   if (!user || !tab) return null;
 

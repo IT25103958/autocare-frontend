@@ -64,8 +64,10 @@ export const BLOCK_SHORT: Record<string, string> = { MORNING: "AM", AFTERNOON: "
 
 export const roleLabel = (role: string) => role.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 
-export const errorText = (err: any, fallback: string) =>
-  typeof err?.response?.data === "string" && err.response.data.length < 300 ? err.response.data : fallback;
+export const errorText = (err: unknown, fallback: string) => {
+  const data = (err as { response?: { data?: unknown } })?.response?.data;
+  return typeof data === "string" && data.length < 300 ? data : fallback;
+};
 
 // Local-date helpers (the roster works in the station's local time).
 export const isoDate = (d: Date) =>
