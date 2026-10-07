@@ -2,14 +2,17 @@
 
 import { useState, useEffect, useRef } from "react";
 import api from "../../utils/axiosInstance";
+import { getErrorMessage } from "../../utils/apiError";
 import { downloadReceipt } from "../billing/_components/billing";
 
 interface SparePart {
+  partID: number;
   partCode: string;
   name: string;
+  category?: string;
   currentStock: number;
   unitPrice: number;
-  [key: string]: any;
+  active?: boolean;
 }
 
 interface CartItem extends SparePart {
@@ -61,23 +64,31 @@ export default function PointOfSale() {
     }, 4500);
   };
 
+  const loadData = () => Promise.all([
+    api.get<SparePart[]>("/parts"),
+    api.get<TransactionHistory[]>("/pos/history"),
+    api.get<PricingRule[]>("/pricing-rules/active").catch(() => ({ data: [] as PricingRule[] })),
+  ]);
+  const applyData = ([invRes, histRes, rulesRes]: Awaited<ReturnType<typeof loadData>>) => {
+    setInventory(invRes.data);
+    setHistory([...histRes.data].reverse());
+    setPricingRules(rulesRes.data);
+  };
   const fetchData = async () => {
     try {
-      const [invRes, histRes, rulesRes] = await Promise.all([
-        api.get("/parts"),
-        api.get("/pos/history"),
-        api.get("/pricing-rules/active").catch(() => ({ data: [] }))
-      ]);
-      setInventory(invRes.data);
-      setHistory(histRes.data.reverse());
-      setPricingRules(rulesRes.data);
+      applyData(await loadData());
     } catch (err) {
-      console.error("Failed to fetch POS data", err);
+      showToast("error", "Couldn't load", getErrorMessage(err, "The parts list couldn't be loaded. Refresh to try again."));
     }
   };
 
   useEffect(() => {
-    fetchData();
+    let alive = true;
+    loadData()
+      .then(r => { if (alive) applyData(r); })
+      .catch(err => { if (alive) showToast("error", "Couldn't load", getErrorMessage(err, "The parts list couldn't be loaded. Refresh to try again.")); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on open
   }, []);
 
   const addToCart = (part: SparePart) => {
@@ -117,21 +128,7 @@ export default function PointOfSale() {
     setIsProcessing(true);
 
     try {
-      const formattedCartItems = [];
-      for (const item of cart) {
-        let exactId = item.partId ?? item.id ?? item.sparePartId ?? item.part_id;
-        if (!exactId) {
-          const fallbackKey = Object.keys(item).find(key => key.toLowerCase().includes('id') && typeof item[key] === 'number');
-          if (fallbackKey) exactId = item[fallbackKey];
-        }
-
-        if (!exactId) {
-          showToast("error", "System Error", `ID missing for '${item.name}'. Transaction halted.`);
-          setIsProcessing(false);
-          return;
-        }
-        formattedCartItems.push({ partId: Number(exactId), quantity: Number(item.quantity) });
-      }
+      const formattedCartItems = cart.map(item => ({ partId: item.partID, quantity: item.quantity }));
 
       const payload = {
         customerName: customerName.trim() || "Walk-in Customer",
@@ -152,9 +149,8 @@ export default function PointOfSale() {
       setTendered("");
       setPaymentRef("");
       fetchData();
-    } catch (err: any) {
-      const msg = typeof err?.response?.data === "string" ? err.response.data : "The server rejected the checkout request.";
-      showToast("error", "Transaction Failed", msg);
+    } catch (err) {
+      showToast("error", "Sale not completed", getErrorMessage(err, "The sale couldn't be completed. Nothing was charged."));
     } finally {
       setIsProcessing(false);
     }
@@ -176,7 +172,9 @@ export default function PointOfSale() {
   const taxAmount = taxableAmount * (totalTaxPercent / 100);
   const netTotal = taxableAmount + taxAmount;
 
-  const filteredInventory = inventory.filter(p => p.name.toLowerCase().includes(search.toLowerCase()) || p.partCode.toLowerCase().includes(search.toLowerCase()));
+  // Discontinued parts are kept for history only and can't be sold.
+  const q = search.trim().toLowerCase();
+  const filteredInventory = inventory.filter(p => p.active !== false && (p.name.toLowerCase().includes(q) || p.partCode.toLowerCase().includes(q)));
 
   return (
     // Fills the screen below the two-row header on desktop (72px + 56px); on

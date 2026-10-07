@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import api from "../../utils/axiosInstance";
 import { getErrorMessage as extractErrorMessage } from "../../utils/apiError";
@@ -148,7 +148,6 @@ function usePagination<T>(items: T[], pageSize: number) {
   const [page, setPage] = useState(1);
   const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
   const clampedPage = Math.min(page, totalPages);
-  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [totalPages, page]);
   const pageItems = useMemo(() => items.slice((clampedPage - 1) * pageSize, clampedPage * pageSize), [items, clampedPage, pageSize]);
   return { page: clampedPage, setPage, totalPages, pageItems };
 }
@@ -172,10 +171,9 @@ function PaginationBar<T>({ pagination, itemLabel }: { pagination: ReturnType<ty
   );
 }
 
+// document.body once in the browser; null while rendering on the server.
 function usePortalTarget() {
-  const [target, setTarget] = useState<HTMLElement | null>(null);
-  useEffect(() => { setTarget(document.body); }, []);
-  return target;
+  return useSyncExternalStore(() => () => {}, () => document.body, () => null);
 }
 
 function SearchInput({ value, onChange, placeholder, ariaLabel, className = "w-64" }: {
@@ -232,7 +230,7 @@ export default function PartsInventoryPage() {
 
   const isManager = user?.role === "SUPER_ADMIN" || user?.role === "INVENTORY_MANAGER";
 
-  const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<PartFormInput, any, PartFormOutput>({
+  const { register, handleSubmit, reset, setValue, formState: { errors, isSubmitting } } = useForm<PartFormInput, unknown, PartFormOutput>({
     resolver: zodResolver(partSchema),
     mode: "onChange",
     defaultValues: { category: "Engine", currentStock: 0, minimumStockLevel: 5 },
@@ -251,21 +249,14 @@ export default function PartsInventoryPage() {
   const fetchAll = useCallback(async (isManualRefresh = false) => {
     if (isManualRefresh) setRefreshing(true); else setLoading(true);
 
-    const calls: Promise<any>[] = [api.get<SparePart[]>("/parts")];
     // Only active suppliers approved for spare parts can be ordered from.
-    if (isManager) calls.push(api.get<SupplierOption[]>("/suppliers/options", { params: { category: "SPARE_PARTS" } }));
-
-    const results = await Promise.allSettled(calls);
+    const [partsRes, suppliersRes] = await Promise.allSettled([
+      api.get<SparePart[]>("/parts"),
+      isManager ? api.get<SupplierOption[]>("/suppliers/options", { params: { category: "SPARE_PARTS" } }) : Promise.resolve({ data: [] as SupplierOption[] }),
+    ]);
     const errors: FetchErrors = {};
-
-    const partsRes = results[0];
     const partsData = partsRes.status === "fulfilled" ? partsRes.value.data : (errors.parts = true, []);
-
-    let suppliersData: SupplierOption[] = [];
-    if (isManager) {
-      const suppliersRes = results[1];
-      suppliersData = suppliersRes && suppliersRes.status === "fulfilled" ? suppliersRes.value.data : (errors.suppliers = true, []);
-    }
+    const suppliersData: SupplierOption[] = suppliersRes.status === "fulfilled" ? suppliersRes.value.data : (errors.suppliers = true, []);
 
     setParts(partsData);
     setSupplierList(suppliersData);
@@ -283,13 +274,15 @@ export default function PartsInventoryPage() {
   }, [isManager, pushToast]);
 
   useEffect(() => {
-    if (user) fetchAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Started from a callback, so the loading-state updates aren't made inside the effect body.
+    if (user) Promise.resolve().then(() => fetchAll());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when the signed-in user changes
   }, [user, isManager]);
 
   const onSubmit = async (form: PartFormOutput) => {
     // Form-only fields stay out of the part sent to the backend.
     const { initialSupplierName, costPerUnit, isEdit, ...rest } = form;
+    void isEdit; // form-only flag
     const part = { ...rest, warrantyMonths: form.warrantyMonths ? Number(form.warrantyMonths) : null };
     try {
       if (editingPartId) {
@@ -322,7 +315,7 @@ export default function PartsInventoryPage() {
     setEditingPartId(activeId);
     setValue("partCode", part.partCode);
     setValue("name", part.name);
-    setValue("category", part.category as any);
+    setValue("category", part.category as PartFormInput["category"]);
     setValue("unitPrice", part.unitPrice);
     setValue("currentStock", part.currentStock);
     setValue("minimumStockLevel", part.minimumStockLevel);
@@ -466,7 +459,7 @@ export default function PartsInventoryPage() {
           <div className="flex items-center justify-between gap-4 px-6 py-4 bg-red-50 border border-red-200 rounded-2xl mb-6">
             <div className="flex items-center gap-3">
               <IconAlertTriangle c="w-5 h-5 text-red-500 flex-shrink-0" />
-              <p className="text-sm font-bold text-red-700">Couldn't load: {Object.keys(fetchErrors).join(", ")}. Figures below may be incomplete.</p>
+              <p className="text-sm font-bold text-red-700">Couldn&apos;t load: {Object.keys(fetchErrors).join(", ")}. Figures below may be incomplete.</p>
             </div>
             <button onClick={() => fetchAll(true)} className="text-xs font-black uppercase tracking-widest text-red-700 hover:text-red-900 whitespace-nowrap">Retry now</button>
           </div>
@@ -838,15 +831,17 @@ export default function PartsInventoryPage() {
                       <input id="rmaQty" type="number" min="1" max={rmaModal.part.currentStock > 0 ? rmaModal.part.currentStock : undefined} required value={rmaData.quantity} onChange={(e) => setRmaData({ ...rmaData, quantity: parseInt(e.target.value) || 1 })} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 font-black" />
                     </div>
                     <div>
-                      <label className="block text-xs font-black text-slate-600 uppercase mb-2">Refund Value</label>
-                      <div className="w-full px-4 py-3 rounded-xl border border-orange-200 bg-orange-50 font-black text-orange-700">{formatLKR(rmaData.quantity * (rmaModal.part.unitPrice || 0))}</div>
+                      <label className="block text-xs font-black text-slate-600 uppercase mb-2">Refund Value (at cost)</label>
+                      {/* Same as the backend (RmaService): the supplier refunds what we paid, not our selling price. */}
+                      <div className="w-full px-4 py-3 rounded-xl border border-orange-200 bg-orange-50 font-black text-orange-700">{formatLKR(rmaData.quantity * ((rmaModal.part.costPrice ?? 0) > 0 ? rmaModal.part.costPrice! : (rmaModal.part.unitPrice || 0)))}</div>
                     </div>
                   </div>
                   <div>
                     <label htmlFor="rmaReason" className="block text-xs font-black text-slate-600 uppercase mb-2">Reason for Return</label>
-                    <textarea id="rmaReason" required rows={3} value={rmaData.reason} onChange={(e) => setRmaData({ ...rmaData, reason: e.target.value })} className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 font-medium text-slate-700 resize-none" />
+                    <textarea id="rmaReason" required rows={3} maxLength={300} value={rmaData.reason} onChange={(e) => setRmaData({ ...rmaData, reason: e.target.value })} placeholder="What is wrong with the part?" className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 font-medium text-slate-700 resize-none" />
+                    <p className="mt-1 text-[11px] font-medium text-slate-500">{rmaData.reason.trim().length < 5 ? "At least 5 characters." : `${rmaData.reason.length}/300`}</p>
                   </div>
-                  <button type="submit" disabled={isSubmittingAction} className="w-full bg-slate-900 hover:bg-orange-600 disabled:opacity-60 text-white font-black py-4 rounded-xl transition-colors">{isSubmittingAction ? "Dispatching..." : "Submit RMA Request"}</button>
+                  <button type="submit" disabled={isSubmittingAction || rmaData.reason.trim().length < 5 || !rmaData.supplierId} className="w-full bg-slate-900 hover:bg-orange-600 disabled:opacity-60 text-white font-black py-4 rounded-xl transition-colors">{isSubmittingAction ? "Sending..." : "Send return to supplier"}</button>
                 </form>
               </div>
             </div>

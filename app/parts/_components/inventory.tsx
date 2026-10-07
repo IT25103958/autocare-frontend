@@ -65,8 +65,10 @@ export const lkr = (n: number | null | undefined) =>
 export const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
-export const errText = (err: any, fallback: string) =>
-  typeof err?.response?.data === "string" && err.response.data.length < 300 ? err.response.data : fallback;
+export const errText = (err: unknown, fallback: string) => {
+  const data = (err as { response?: { data?: unknown } })?.response?.data;
+  return typeof data === "string" && data.length < 300 ? data : fallback;
+};
 
 export function ChangeBadge({ change }: { change: number }) {
   return (

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import api from "../../utils/axiosInstance";
+import { getErrorMessage } from "../../utils/apiError";
 import { useAuth } from "../context/AuthContext";
 import Link from "next/link";
 
@@ -27,20 +28,23 @@ export default function MasterRMADashboard() {
   const isFinance = user?.role === "ACCOUNTS_FINANCE_OFFICER" || user?.role === "SUPER_ADMIN";
   const isInventory = user?.role === "INVENTORY_MANAGER";
 
+  // Suppliers only receive their own company's returns from the server.
+  const loadRmas = () => api.get<RMARecord[]>("/rma").then(r => [...r.data].sort((a, b) => b.id - a.id));
   const fetchRmas = async () => {
     try {
-      const response = await api.get("/rma");
-      // Suppliers only receive their own company's returns from the server.
-      const fetchedRmas = response.data;
-
-      setRmas(fetchedRmas.sort((a: RMARecord, b: RMARecord) => b.id - a.id));
+      setRmas(await loadRmas());
     } catch (err) {
-      console.error("Failed to fetch RMA records", err);
+      setServerMessage({ type: "error", text: getErrorMessage(err, "Couldn't load returns.") });
     }
   };
 
   useEffect(() => {
-    if (user) fetchRmas();
+    if (!user) return;
+    let alive = true;
+    loadRmas()
+      .then(list => { if (alive) setRmas(list); })
+      .catch(err => { if (alive) setServerMessage({ type: "error", text: getErrorMessage(err, "Couldn't load returns.") }); });
+    return () => { alive = false; };
   }, [user]);
 
   const handleProcessRMA = async (id: number, status: "APPROVED_REPLACEMENT" | "APPROVED_REFUND" | "REJECTED") => {
@@ -51,7 +55,7 @@ export default function MasterRMADashboard() {
       fetchRmas();
       setTimeout(() => setServerMessage({ type: "", text: "" }), 3000);
     } catch (err) {
-      setServerMessage({ type: "error", text: "Failed to update RMA status." });
+      setServerMessage({ type: "error", text: getErrorMessage(err, "Couldn't update the return.") });
     }
   };
 
@@ -63,7 +67,7 @@ export default function MasterRMADashboard() {
       fetchRmas();
       setTimeout(() => setServerMessage({ type: "", text: "" }), 4000);
     } catch (err) {
-      setServerMessage({ type: "error", text: "Failed to process the physical replacement." });
+      setServerMessage({ type: "error", text: getErrorMessage(err, "Couldn't record the replacement.") });
     }
   };
 

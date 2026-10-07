@@ -88,7 +88,8 @@ export default function SupplierDashboard() {
   }, [user]);
 
   useEffect(() => {
-    fetchData();
+    // Started from a callback so the state updates aren't made inside the effect body.
+    Promise.resolve().then(fetchData);
   }, [fetchData]);
 
   if (error) {
