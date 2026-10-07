@@ -34,6 +34,18 @@ interface ExpenseList {
   expenses: Expense[];
 }
 
+// GET /finance/funds: what the business holds after every payment out (expenses included).
+interface Funds {
+  openingBalance: number;
+  asOfDate: string | null;
+  moneyIn: number;
+  expenses: number;
+  supplierPayments: number;
+  payroll: number;
+  moneyOut: number;
+  available: number;
+}
+
 const CATEGORY_LABEL: Record<string, string> = {
   UTILITIES: "Utilities",
   RENT: "Rent",
@@ -89,6 +101,7 @@ function ExpenseLog() {
   const [dialogError, setDialogError] = useState("");
   const [saving, setSaving] = useState(false);
   const [reload, setReload] = useState(0);
+  const [funds, setFunds] = useState<Funds | null>(null);
 
   // Scroll to and highlight the expense a risk alert linked to (?focus=EXP-...).
   useEffect(() => highlightFocusTarget(), []);
@@ -99,6 +112,12 @@ function ExpenseLog() {
       .then(res => setData(res.data))
       .catch(err => { setData(null); setNotice({ type: "error", text: errText(err, "Couldn't load expenses.") }); });
   }, [user, from, to, reload]);
+
+  // Reloaded with the list, so logging or voiding an expense moves the balance straight away.
+  useEffect(() => {
+    if (!user) return;
+    api.get<Funds>("/finance/funds").then(res => setFunds(res.data)).catch(() => setFunds(null));
+  }, [user, reload]);
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -123,7 +142,8 @@ function ExpenseLog() {
     try {
       const res = await api.post<Expense>("/expenses", { ...form, amount: Number(form.amount), payee: form.payee || null, reference: form.reference || null });
       setAdding(false);
-      setNotice({ type: "ok", text: `${res.data.expenseNumber} logged — ${lkr(res.data.amount)} for ${res.data.description}.` });
+      setNotice({ type: "ok", text: `${res.data.expenseNumber} logged — ${lkr(res.data.amount)} for ${res.data.description}.`
+        + (funds ? ` Money available is now ${lkr(funds.available - res.data.amount)}.` : "") });
       setReload(v => v + 1);
     } catch (err) {
       setDialogError(errText(err, "Couldn't save the expense."));
@@ -139,7 +159,7 @@ function ExpenseLog() {
     setDialogError("");
     try {
       await api.put(`/expenses/${voiding.expenseId}/void`, { reason: voidReason });
-      setNotice({ type: "ok", text: `${voiding.expenseNumber} voided.` });
+      setNotice({ type: "ok", text: `${voiding.expenseNumber} voided — ${lkr(voiding.amount)} is back in the available funds.` });
       setVoiding(null);
       setReload(v => v + 1);
     } catch (err) {
@@ -173,6 +193,26 @@ function ExpenseLog() {
 
         {notice && (
           <div role="status" className={`px-4 py-3 rounded-xl text-sm font-bold border ${notice.type === "ok" ? "bg-green-50 text-green-800 border-green-200" : "bg-red-50 text-red-700 border-red-200"}`}>{notice.text}</div>
+        )}
+
+        {funds && (
+          <div className="bg-slate-900 text-white rounded-3xl p-6 flex flex-wrap items-center justify-between gap-6">
+            <div>
+              <h3 className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-1">Money we have now</h3>
+              <div className={`text-3xl font-black tabular-nums ${funds.available < 0 ? "text-red-400" : ""}`}>{lkr(funds.available)}</div>
+              <p className="text-xs font-semibold text-slate-400 mt-1">
+                After every expense, supplier payment and payroll{funds.asOfDate ? ` since ${fmtDay(funds.asOfDate)}` : " recorded so far"}.
+              </p>
+              {!funds.asOfDate && <p className="text-xs font-bold text-amber-300 mt-1">No opening balance set yet. Set it from the Finance dashboard.</p>}
+            </div>
+            <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-xs">
+              {funds.asOfDate && <><dt className="text-slate-400">Opening balance</dt><dd className="text-right font-black tabular-nums sm:col-span-2">{lkr(funds.openingBalance)}</dd></>}
+              <dt className="text-slate-400">Money in</dt><dd className="text-right font-black tabular-nums text-emerald-300 sm:col-span-2">+ {lkr(funds.moneyIn)}</dd>
+              <dt className="text-slate-400">Expenses</dt><dd className="text-right font-black tabular-nums text-red-300 sm:col-span-2">− {lkr(funds.expenses)}</dd>
+              <dt className="text-slate-400">Supplier payments</dt><dd className="text-right font-black tabular-nums text-red-300 sm:col-span-2">− {lkr(funds.supplierPayments)}</dd>
+              <dt className="text-slate-400">Payroll</dt><dd className="text-right font-black tabular-nums text-red-300 sm:col-span-2">− {lkr(funds.payroll)}</dd>
+            </dl>
+          </div>
         )}
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -316,6 +356,17 @@ function ExpenseLog() {
               </label>
               <input id="ex-ref" value={form.reference} maxLength={60} onChange={e => setForm({ ...form, reference: e.target.value })} className={inputClass} />
             </div>
+            {funds && Number(form.amount) > 0 && (() => {
+              const after = funds.available - Number(form.amount);
+              return (
+                <div className={`rounded-xl border p-3 text-sm ${after < 0 ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"}`}>
+                  <div className="flex justify-between"><span className="text-slate-600">Money available now</span><span className="font-bold tabular-nums">{lkr(funds.available)}</span></div>
+                  <div className="flex justify-between"><span className="text-slate-600">This expense</span><span className="font-bold tabular-nums text-red-700">− {lkr(Number(form.amount))}</span></div>
+                  <div className="flex justify-between border-t border-slate-200 mt-1 pt-1"><span className="font-bold text-slate-900">After paying</span><span className={`font-black tabular-nums ${after < 0 ? "text-red-700" : "text-slate-900"}`}>{lkr(after)}</span></div>
+                  {after < 0 && <p className="text-xs font-bold text-red-700 mt-1">This is more than the business has on record. Check the amount, or set the opening balance on the Finance dashboard.</p>}
+                </div>
+              );
+            })()}
             {dialogError && <p role="alert" className="text-sm font-bold text-red-600">{dialogError}</p>}
             <div className="flex justify-end gap-3">
               <button type="button" onClick={() => setAdding(false)} className="px-4 py-2.5 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-100">Cancel</button>

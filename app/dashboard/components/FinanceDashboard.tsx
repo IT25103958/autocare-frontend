@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import FinanceAlerts from "./FinanceAlerts";
+import FundsPosition from "./FundsPosition";
 import DailyBrief from "./DailyBrief";
 import api from "../../../utils/axiosInstance";
 import {
@@ -510,13 +511,6 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
     // once it's been processed, which is the same instant the payout happens
     // — so the full sum here is genuine cash already disbursed.
     const totalPayrollPaid = data.salary.reduce((sum, r) => sum + (r.totalSalary ?? r.netSalary ?? 0), 0);
-    // NET CASH = everything received − everything already paid out.
-    //   received  : PAID workshop jobs + POS + settled RMA credits + cleared fuel cash
-    //   paid out  : supplier payments made (amountPaid, not the remaining
-    //               balance — that's a liability, not cash gone) + payroll
-    // Unpaid/uncleared money (COMPLETED jobs, unapproved shift cash) is
-    // deliberately excluded — it isn't in the bank yet.
-    const netCashflow = roundMoney(totalGrossRevenue - totalPaidOut - totalPayrollPaid);
     const outstandingPayablesCount = data.payables.filter((p) => {
       const balance = roundMoney((p.totalInvoiceAmount || 0) - (p.amountPaid || 0));
       return balance > 0.005;
@@ -553,7 +547,7 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
     ];
 
     return {
-      totalGrossRevenue, totalPendingCollection, totalSupplierDebt, netCashflow, totalPayrollPaid, totalPaidOut,
+      totalGrossRevenue, totalPendingCollection, totalSupplierDebt, totalPayrollPaid, totalPaidOut,
       fuelCashCleared,
       outstandingPayablesCount, revenueStreamData, debtPieData, cashFlowPipeline,
     };
@@ -807,12 +801,10 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
             )}
           </div>
         </div>
-        <div className="relative z-10 text-right">
-          <p className="text-xs font-black uppercase tracking-widest text-emerald-400 mb-1">Net Cashflow Position</p>
-          <p className={`text-4xl lg:text-5xl font-black drop-shadow-md ${analytics.netCashflow < 0 ? "text-red-400" : "text-white"}`}>{formatLKR(analytics.netCashflow)}</p>
-          <p className="text-[11px] font-semibold text-slate-400 mt-2">
-            {formatCompactLKR(analytics.totalGrossRevenue)} received &minus; {formatCompactLKR(analytics.totalPaidOut)} suppliers &minus; {formatCompactLKR(analytics.totalPayrollPaid)} payroll
-          </p>
+        {/* Available funds come from the backend ledger (opening balance + money in −
+            expenses, supplier payments and payroll); the old figure here left out expenses. */}
+        <div className="relative z-10">
+          <FundsPosition refreshKey={lastUpdated?.getTime() ?? 0} />
         </div>
         <div className="absolute -top-32 -right-32 w-[30rem] h-[30rem] bg-blue-600/20 rounded-full blur-[100px] pointer-events-none" />
       </div>

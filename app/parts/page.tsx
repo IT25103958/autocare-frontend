@@ -43,10 +43,15 @@ const partSchema = z.object({
   // Set while editing an existing part: the initial-purchase rule only applies to new parts
   // (it used to block editing any part that had stock).
   isEdit: z.boolean().optional(),
-}).refine(
-  (data) => data.isEdit || data.currentStock === 0 || (!!data.initialSupplierName && !!data.costPerUnit && data.costPerUnit > 0),
-  { message: "Stock above 0 needs a supplier and cost — otherwise this stock is invisible to Finance.", path: ["initialSupplierName"] }
-);
+}).superRefine((data, ctx) => {
+  // Each missing piece gets its own error on its own field (it used to be one
+  // message pinned to the supplier box that never cleared while typing the cost).
+  if (data.isEdit || data.currentStock === 0) return;
+  if (!data.initialSupplierName)
+    ctx.addIssue({ code: "custom", path: ["initialSupplierName"], message: "Pick who this opening stock was bought from — otherwise it's invisible to Finance." });
+  if (!data.costPerUnit || data.costPerUnit <= 0)
+    ctx.addIssue({ code: "custom", path: ["costPerUnit"], message: "Enter what we paid per unit (greater than Rs. 0)." });
+});
 
 // zod v4 + @hookform/resolvers v5: coerced number fields need the two-generic
 // useForm pattern (input shape vs. parsed output shape), same fix already
@@ -283,21 +288,25 @@ export default function PartsInventoryPage() {
   }, [user, isManager]);
 
   const onSubmit = async (form: PartFormOutput) => {
-    const data = { ...form, warrantyMonths: form.warrantyMonths ? Number(form.warrantyMonths) : null };
+    // Form-only fields stay out of the part sent to the backend.
+    const { initialSupplierName, costPerUnit, isEdit, ...rest } = form;
+    const part = { ...rest, warrantyMonths: form.warrantyMonths ? Number(form.warrantyMonths) : null };
     try {
       if (editingPartId) {
-        await api.put(`/parts/${editingPartId}`, data);
+        await api.put(`/parts/${editingPartId}`, part);
         pushToast("success", "Component details updated.");
         setEditingPartId(null);
-      } else if (data.initialSupplierName && data.costPerUnit) {
+      } else if (part.currentStock > 0) {
         // Registering a brand-new part together with who it was bought from
         // and at what cost — this is also how any part with real starting
         // stock generates its invoice to Finance (see the schema refine).
-        const { initialSupplierName, costPerUnit, ...part } = data;
         await api.post("/parts/register-with-invoice", { part, supplierId: Number(initialSupplierName), costPerUnit });
-        pushToast("success", `Part registered — an invoice for ${data.currentStock} units was sent to Finance.`);
+        pushToast("success", `Part registered — an invoice for ${part.currentStock} units was sent to Finance.`);
       } else {
-        await api.post("/parts", data);
+        // Zero stock: nothing was bought, so no invoice. A cost typed in anyway
+        // is kept as the part's cost price (the backend refused the invoice
+        // route for 0 units, which is what made this form fail before).
+        await api.post("/parts", { ...part, costPrice: costPerUnit && costPerUnit > 0 ? costPerUnit : null });
         pushToast("success", "New spare part added.");
       }
       reset();
@@ -519,7 +528,7 @@ export default function PartsInventoryPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label htmlFor="currentStock" className="block text-sm font-bold text-slate-700 mb-1.5">{editingPartId ? "Stock (locked)" : "Opening Stock"}</label>
-                      <input id="currentStock" {...register("currentStock")} type="number" readOnly={!!editingPartId}
+                      <input id="currentStock" {...register("currentStock", { deps: ["initialSupplierName", "costPerUnit"] })} type="number" readOnly={!!editingPartId}
                         className={`w-full px-4 py-2.5 rounded-xl border outline-none ${editingPartId ? "bg-slate-100 text-slate-500 cursor-not-allowed border-slate-200" : `bg-slate-50 ${errors.currentStock ? "border-red-400" : "border-slate-200"}`}`} />
                       {editingPartId && <p className="mt-1 text-[11px] font-bold text-slate-500">Use “Adjust stock” in the list so the change is recorded.</p>}
                       {errors.currentStock && <p className="mt-1 text-xs font-bold text-red-500">{errors.currentStock.message}</p>}
@@ -532,14 +541,15 @@ export default function PartsInventoryPage() {
                   </div>
                   <div>
                     <label htmlFor="minimumStockLevel" className="block text-sm font-bold text-slate-700 mb-1.5">Safety Alert Level</label>
-                    <input id="minimumStockLevel" {...register("minimumStockLevel")} type="number" className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 outline-none ${errors.minimumStockLevel ? "border-red-400" : "border-slate-200"}`} />
+                    <input id="minimumStockLevel" {...register("minimumStockLevel")} type="number" min={1} className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 outline-none ${errors.minimumStockLevel ? "border-red-400" : "border-slate-200"}`} />
+                    <p className="mt-1 text-[11px] text-slate-400 font-medium">When stock falls to this number, the part is flagged low and shows up for reordering.</p>
                     {errors.minimumStockLevel && <p className="mt-1 text-xs font-bold text-red-500">{errors.minimumStockLevel.message}</p>}
                   </div>
                   <div>
                     <label htmlFor="reorderQuantity" className="block text-sm font-bold text-slate-700 mb-1.5">Reorder Quantity <span className="font-medium text-slate-400">(optional)</span></label>
                     <input id="reorderQuantity" {...register("reorderQuantity")} type="number" min={0} placeholder="0 = automatic"
                       className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 outline-none ${errors.reorderQuantity ? "border-red-400" : "border-slate-200"}`} />
-                    <p className="mt-1 text-[11px] text-slate-400 font-medium">Suggested order size when stock runs low. Automatic tops up to twice the alert level.</p>
+                    <p className="mt-1 text-[11px] text-slate-400 font-medium">How many to order once the alert level is hit. Automatic tops up to twice the alert level.</p>
                     {errors.reorderQuantity && <p className="mt-1 text-xs font-bold text-red-500">{errors.reorderQuantity.message}</p>}
                   </div>
                   <div>
@@ -558,16 +568,18 @@ export default function PartsInventoryPage() {
                       </div>
                       <div>
                         <label htmlFor="initialSupplierName" className="block text-sm font-bold text-slate-700 mb-1.5">Bought From</label>
-                        <select id="initialSupplierName" {...register("initialSupplierName")} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 outline-none cursor-pointer">
+                        <select id="initialSupplierName" {...register("initialSupplierName", { deps: ["costPerUnit"] })} className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 outline-none cursor-pointer ${errors.initialSupplierName ? "border-red-400" : "border-slate-200"}`}>
                           <option value="">-- No supplier / zero stock only --</option>
                           {supplierList.map((sup) => (<option key={sup.id} value={sup.id}>{sup.companyName} ({sup.supplierCode})</option>))}
                         </select>
+                        {errors.initialSupplierName && <p className="mt-1 text-xs font-bold text-red-500">{errors.initialSupplierName.message}</p>}
                       </div>
                       <div>
                         <label htmlFor="costPerUnit" className="block text-sm font-bold text-slate-700 mb-1.5">Cost Per Unit (LKR)</label>
-                        <input id="costPerUnit" {...register("costPerUnit")} type="number" step="0.01" placeholder="What we paid, not the retail price above" className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 outline-none" />
+                        <input id="costPerUnit" {...register("costPerUnit", { deps: ["initialSupplierName"] })} type="number" step="0.01" min={0} placeholder="What we paid, not the retail price above"
+                          className={`w-full px-4 py-2.5 rounded-xl border bg-slate-50 outline-none ${errors.costPerUnit ? "border-red-400" : "border-slate-200"}`} />
+                        {errors.costPerUnit && <p className="mt-1 text-xs font-bold text-red-500">{errors.costPerUnit.message}</p>}
                       </div>
-                      {errors.initialSupplierName && <p className="text-xs font-bold text-red-500">{errors.initialSupplierName.message}</p>}
                     </div>
                   )}
 
