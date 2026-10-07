@@ -70,8 +70,10 @@ const EVENT_LABELS: Record<string, string> = {
 
 const ticketRef = (id: number) => `TKT-${String(id).padStart(5, "0")}`;
 const formatWhen = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-const errorText = (err: any, fallback: string) =>
-  typeof err?.response?.data === "string" && err.response.data.length < 200 ? err.response.data : fallback;
+const errorText = (err: unknown, fallback: string) => {
+  const data = (err as { response?: { data?: unknown } })?.response?.data;
+  return typeof data === "string" && data.length < 200 ? data : fallback;
+};
 
 function StatusPill({ status }: { status: string }) {
   const style = status === "RESOLVED" ? "bg-green-50 text-green-700 border-green-200"
@@ -82,7 +84,6 @@ function StatusPill({ status }: { status: string }) {
 }
 
 export default function SubmitTicketPage() {
-  const [isMounted, setIsMounted] = useState(false);
   // undefined = still loading, null = customer hasn't set up their profile yet
   const [profile, setProfile] = useState<Profile | null | undefined>(undefined);
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -126,7 +127,6 @@ export default function SubmitTicketPage() {
   };
 
   useEffect(() => {
-    setIsMounted(true);
     api.get<Profile>("/customers/my-profile")
       .then(res => {
         setProfile(res.data);
@@ -134,6 +134,7 @@ export default function SubmitTicketPage() {
         loadTickets();
       })
       .catch(() => setProfile(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once on open
   }, []);
 
   const onSubmit = async (data: SupportFormInputs) => {
@@ -157,7 +158,7 @@ export default function SubmitTicketPage() {
         const res = await api.post<Profile>("/customers/my-profile", { vehicleRegNo: vehicle, contactNumber: contact });
         setProfile(res.data);
         setValue("vehicleRegistration", res.data.vehicleRegNo);
-      } catch (err: any) {
+      } catch (err) {
         setModal({ isOpen: true, type: "error", title: "Profile Not Saved", message: errorText(err, "Please verify your vehicle and contact number.") });
         return;
       }
@@ -180,8 +181,8 @@ export default function SubmitTicketPage() {
       });
       reset({ category: data.category, issueDescription: "", vehicleRegistration: vehicle, contactNumber: "" });
       loadTickets();
-    } catch (err: any) {
-      setModal({ isOpen: true, type: "error", title: "Transmission Failed", message: errorText(err, "The server rejected the request. Please try again.") });
+    } catch (err) {
+      setModal({ isOpen: true, type: "error", title: "Ticket not sent", message: errorText(err, "Your request couldn't be sent. Please try again.") });
     }
   };
 
@@ -197,7 +198,7 @@ export default function SubmitTicketPage() {
     }
   };
 
-  if (!isMounted || profile === undefined) return null;
+  if (profile === undefined) return null;
 
   const selectedDesk = CATEGORIES.find(c => c.key === selectedCategory)?.desk;
   const inputClass = (hasError: boolean) =>
@@ -217,7 +218,7 @@ export default function SubmitTicketPage() {
         </div>
 
         <p className="text-slate-500 font-medium mb-8 pb-6 border-b border-slate-100 md:pl-16">
-          Submit an issue directly to the Lanka Auto Care CRM team. Your ticket is routed straight to the right department, and you'll get an email at every step.
+          Submit an issue directly to the Lanka Auto Care CRM team. Your ticket is routed straight to the right department, and you&apos;ll get an email at every step.
         </p>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
@@ -257,7 +258,7 @@ export default function SubmitTicketPage() {
               <label className="block text-sm font-bold text-slate-700 mb-2 uppercase tracking-wider">
                 2. Verify Your Account
               </label>
-              <p className="text-xs text-slate-500 mb-3">First ticket? Tell us your vehicle and phone number — we'll remember them for next time.</p>
+              <p className="text-xs text-slate-500 mb-3">First ticket? Tell us your vehicle and phone number — we&apos;ll remember them for next time.</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="vehicleRegistration" className="sr-only">Vehicle registration</label>

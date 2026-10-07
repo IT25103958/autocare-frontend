@@ -124,7 +124,7 @@ export default function ProfileSettings() {
                   <p className="text-xs text-slate-300 mt-2">{profile.pointsToNextTier?.toLocaleString()} more points to {profile.nextTier}</p>
                 </>
               ) : (
-                <p className="text-xs text-yellow-300 font-bold mt-4">You've reached our top tier. Thank you!</p>
+                <p className="text-xs text-yellow-300 font-bold mt-4">You&apos;ve reached our top tier. Thank you!</p>
               )}
             </div>
           )}
@@ -133,7 +133,7 @@ export default function ProfileSettings() {
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
               <h2 className="font-bold text-slate-800 mb-3">Points Activity</h2>
               {activity.length === 0 ? (
-                <p className="text-sm text-slate-500">No points yet — you'll earn them when you pay for a service.</p>
+                <p className="text-sm text-slate-500">No points yet — you&apos;ll earn them when you pay for a service.</p>
               ) : (
                 <ul className="divide-y divide-slate-100">
                   {activity.slice(0, 8).map(t => (

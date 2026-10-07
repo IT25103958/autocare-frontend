@@ -53,12 +53,17 @@ export default function CustomerHistoryDrawer({ customerId, onClose, onChanged }
       .catch(() => setError("Couldn't load this customer's history."));
   };
 
-  useEffect(() => {
+  // Start fresh when a different customer is opened (state adjusted during render, not in an effect).
+  const [shownFor, setShownFor] = useState(customerId);
+  if (shownFor !== customerId) {
+    setShownFor(customerId);
     setHistory(null);
     setError("");
     setAdjustOpen(false);
-    load();
-  }, [customerId]);
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when a different customer is opened
+  useEffect(() => { load(); }, [customerId]);
 
   const submitAdjustment = async (e: React.FormEvent) => {
     e.preventDefault();

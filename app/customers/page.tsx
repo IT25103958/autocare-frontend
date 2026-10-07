@@ -29,7 +29,8 @@ export default function CustomerDirectory() {
     }
   };
 
-  useEffect(() => { fetchCustomers(); }, []);
+  // Started from a callback so the state updates aren't made inside the effect body.
+  useEffect(() => { Promise.resolve().then(fetchCustomers); }, []);
 
   const startCreate = () => { setForm(EMPTY); setEditingId(null); setShowForm(true); setMessage(null); };
   const startEdit = (c: CustomerProfile) => {

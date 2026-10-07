@@ -83,8 +83,10 @@ export const ticketRef = (id: number) => `TKT-${String(id).padStart(5, "0")}`;
 export const formatWhen = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
 
-export const errorText = (err: any, fallback: string) =>
-  typeof err?.response?.data === "string" && err.response.data.length < 200 ? err.response.data : fallback;
+export const errorText = (err: unknown, fallback: string) => {
+  const data = (err as { response?: { data?: unknown } })?.response?.data;
+  return typeof data === "string" && data.length < 200 ? data : fallback;
+};
 
 // "due in 3h", "overdue by 2d" — relative to now.
 export function slaText(ticket: Ticket): { text: string; overdue: boolean } | null {

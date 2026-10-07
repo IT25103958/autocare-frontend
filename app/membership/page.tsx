@@ -178,7 +178,7 @@ export default function MembershipPage() {
         )}
         {s && s.unsyncedPaidBookings > 0 && canManage && (
           <div className="px-4 py-3 rounded-xl text-sm border bg-yellow-50 text-yellow-900 border-yellow-200">
-            <span className="font-bold">{s.unsyncedPaidBookings} paid bookings haven't earned points yet</span> (paid before the points ledger existed, or before the customer had a profile). Use <span className="font-bold">Sync Paid Bookings</span> to credit them — each booking is only ever credited once.
+            <span className="font-bold">{s.unsyncedPaidBookings} paid bookings haven&apos;t earned points yet</span> (paid before the points ledger existed, or before the customer had a profile). Use <span className="font-bold">Sync Paid Bookings</span> to credit them — each booking is only ever credited once.
           </div>
         )}
 

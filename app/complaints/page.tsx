@@ -23,8 +23,7 @@ const needsAttention = (t: Ticket, suggestions: Record<number, Suggestion>) => t
   && (t.escalated || t.slaBreached || t.priority === "URGENT" || aiFlagsUrgent(t, suggestions[t.ticketId]));
 
 export default function ComplaintsDesk() {
-  const { user } = useAuth();
-  const [isMounted, setIsMounted] = useState(false);
+  const { user, isLoading } = useAuth();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [suggestions, setSuggestions] = useState<Record<number, Suggestion>>({});
   const [loadError, setLoadError] = useState("");
@@ -84,11 +83,8 @@ export default function ComplaintsDesk() {
   };
 
   useEffect(() => {
-    setIsMounted(true);
-    if (user) {
-      fetchTickets();
-      fetchSuggestions();
-    }
+    // Started from a callback so the state updates aren't made inside the effect body.
+    if (user) Promise.resolve().then(() => { fetchTickets(); fetchSuggestions(); });
   }, [user]);
 
   // While the AI is still reading some tickets, check back every few seconds.
@@ -224,7 +220,7 @@ export default function ComplaintsDesk() {
     unassigned: tickets.filter(t => t.status !== "RESOLVED" && !t.assignedStaff).length,
   }), [tickets, suggestions]);
 
-  if (!isMounted) return null;
+  if (isLoading) return null;
 
   const selectClass = "px-3 py-2 border border-slate-200 bg-white rounded-lg text-xs font-bold text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20";
 
