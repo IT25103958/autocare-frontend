@@ -39,8 +39,7 @@ interface SupplierOption {
 }
 
 export default function FuelSupplyChainPage() {
-  const { user } = useAuth();
-  const [isMounted, setIsMounted] = useState(false);
+  const { user, isLoading } = useAuth();
   const [deliveries, setDeliveries] = useState<FuelDelivery[]>([]);
   const [tanks, setTanks] = useState<FuelTank[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
@@ -80,14 +79,17 @@ export default function FuelSupplyChainPage() {
   };
 
   useEffect(() => {
-    setIsMounted(true);
     if (!user) return;
-    fetchDeliveries();
+    // Started from a callback so the state updates aren't made inside the effect body.
+    Promise.resolve().then(fetchDeliveries);
     if (isSupervisor) {
-      api.get<FuelTank[]>("/tanks").then((res) => setTanks(res.data)).catch(() => console.error("Failed to load tanks"));
+      const loadFailed = (what: string) => (err: unknown) =>
+        setModal({ isOpen: true, type: "error", title: `Couldn't Load ${what}`, message: getErrorMessage(err, `The ${what.toLowerCase()} list couldn't be loaded, so new orders can't be placed. Refresh to try again.`) });
+      api.get<FuelTank[]>("/tanks").then((res) => setTanks(res.data)).catch(loadFailed("Tanks"));
       // Only active suppliers approved for fuel can be ordered from.
-      api.get<SupplierOption[]>("/suppliers/options", { params: { category: "FUEL" } }).then((res) => setSuppliers(res.data)).catch(() => console.error("Failed to load suppliers"));
+      api.get<SupplierOption[]>("/suppliers/options", { params: { category: "FUEL" } }).then((res) => setSuppliers(res.data)).catch(loadFailed("Suppliers"));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when the signed-in user changes
   }, [user]);
 
   const supplierLabel = (d: { supplierId?: number | null; supplierName: string }) => {
@@ -208,7 +210,7 @@ export default function FuelSupplyChainPage() {
     }
   };
 
-  if (!isMounted) return null;
+  if (isLoading) return null;
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50 p-6 lg:p-12 relative">

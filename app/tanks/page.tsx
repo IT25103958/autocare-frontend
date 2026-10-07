@@ -93,7 +93,8 @@ export default function WetStockPage() {
   }, [user]);
 
   useEffect(() => {
-    fetchData();
+    // First load from a callback (not in the effect body); then every 15 s.
+    Promise.resolve().then(fetchData);
     const intervalId = setInterval(fetchData, 15000);
     return () => clearInterval(intervalId);
   }, [fetchData]);
