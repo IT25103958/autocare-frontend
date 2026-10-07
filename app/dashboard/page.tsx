@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "../context/AuthContext";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 // Import all the completed department dashboards
@@ -17,25 +17,19 @@ import SupplierDashboard from "./components/SupplierDashboard";
 export default function MasterDashboard() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
-
+  // Protect the route (isLoading stays true until the saved session has been read).
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Protect the route
-  useEffect(() => {
-    if (mounted && !isLoading && !user) {
+    if (!isLoading && !user) {
       router.push("/login");
     }
-  }, [mounted, isLoading, user, router]);
+  }, [isLoading, user, router]);
 
-  if (!mounted || isLoading) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="animate-pulse flex flex-col items-center gap-4">
           <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-          <div className="text-slate-400 font-bold text-sm tracking-widest uppercase">Authenticating Identity...</div>
+          <div className="text-slate-400 font-bold text-sm tracking-widest uppercase">Loading your dashboard…</div>
         </div>
       </div>
     );

@@ -17,36 +17,12 @@ import {
 // TYPES
 // Real interfaces instead of `any` — catches backend shape drift at compile time.
 // =============================================================================
-interface Booking {
-  id: number;
-  status: string;
-  totalPartsCost?: number;
-}
-
-interface POSRecord {
-  id: number;
-  totalRevenue?: number;
-}
-
 interface Payable {
   id: number;
   totalInvoiceAmount?: number;
   amountPaid?: number;
   supplyCategory?: string;
   status?: string;
-}
-
-interface RmaCredit {
-  id: number;
-  totalValue?: number;
-  status?: string;
-  financialStatus?: string;
-}
-
-interface SalaryRecord {
-  salaryId: number;
-  totalSalary?: number;
-  netSalary?: number;
 }
 
 interface PricingRule {
@@ -89,15 +65,30 @@ function handoverNeedsNote(h: ShiftHandover) {
 }
 
 interface FetchErrors {
-  bookings?: boolean;
-  pos?: boolean;
+  funds?: boolean;
+  bills?: boolean;
   payables?: boolean;
-  rma?: boolean;
-  salary?: boolean;
   rules?: boolean;
   handovers?: boolean;
   intraday?: boolean;
 }
+
+// GET /finance/funds: the same money-in / money-out calculation as the Financial
+// Summary report and the Available Funds figure, so every number on this page agrees.
+interface FundsBreakdown {
+  asOfDate: string | null;
+  serviceCenter: number;
+  retailPos: number;
+  fuelSales: number;
+  supplierRefunds: number;
+  moneyIn: number;
+  expenses: number;
+  supplierPayments: number;
+  payroll: number;
+  moneyOut: number;
+}
+
+interface OpenBill { invoiceId: number; balanceDue: number }
 
 interface IntradayPoint {
   hour: number;
@@ -260,8 +251,8 @@ function exportHandoversCSV(rows: ShiftHandover[]) {
 // COMPONENT
 // =============================================================================
 export default function FinanceDashboard({ userName }: { userName?: string }) {
-  const [data, setData] = useState<{ bookings: Booking[]; pos: POSRecord[]; payables: Payable[]; rma: RmaCredit[]; salary: SalaryRecord[] }>({
-    bookings: [], pos: [], payables: [], rma: [], salary: [],
+  const [data, setData] = useState<{ funds: FundsBreakdown | null; openBills: OpenBill[]; payables: Payable[] }>({
+    funds: null, openBills: [], payables: [],
   });
   const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
   const [handovers, setHandovers] = useState<ShiftHandover[]>([]);
@@ -306,30 +297,19 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
   }, []);
 
   // ---------------------------------------------------------------------------
-  // DATA FETCHING — each resource fails independently and is reported, instead
-  // of silently collapsing into an empty array with no trace for the user.
-  //
-  // IMPORTANT: this reads the full ledger from GET /api/payables, not
-  // GET /api/payables/outstanding. The /outstanding endpoint drops an invoice
-  // the instant it's fully paid — so "Expenses Paid" and "Net Cashflow" below
-  // were silently losing that invoice's entire paid amount from the totals
-  // the moment it got settled, making it look like paying off a debt in full
-  // *improved* cashflow. Also pulls settled RMA credits so "revenue" is
-  // defined the same way here as on the Payables page, and pulls payroll
-  // (GET /api/salary) so authorizing a salary payout actually shows up as
-  // cash leaving the system — it previously wasn't fetched here at all, so
-  // Net Cashflow had no idea payroll existed.
+  // ---------------------------------------------------------------------------
+  // DATA FETCHING — each resource fails independently and is reported. Money
+  // figures come from /finance/funds (the same calculation as Available Funds and
+  // the Financial Summary report); supplier debt from the full payables ledger.
   // ---------------------------------------------------------------------------
   const fetchAll = useCallback(async (isManualRefresh = false) => {
     if (isManualRefresh) setRefreshing(true);
     else setLoading(true);
 
-    const [bookRes, posRes, payRes, rmaRes, salaryRes, rulesRes, handRes, intradayRes] = await Promise.allSettled([
-      api.get<Booking[]>("/bookings"),
-      api.get<POSRecord[]>("/pos/history"),
+    const [fundsRes, billsRes, payRes, rulesRes, handRes, intradayRes] = await Promise.allSettled([
+      api.get<FundsBreakdown>("/finance/funds"),
+      api.get<OpenBill[]>("/invoices/outstanding"),
       api.get<Payable[]>("/payables"),
-      api.get<RmaCredit[]>("/rma"),
-      api.get<SalaryRecord[]>("/salary"),
       api.get<PricingRule[]>("/pricing-rules"),
       api.get<ShiftHandover[]>("/pumps/handovers"),
       api.get<IntradayPoint[]>("/analytics/intraday-cashflow"),
@@ -337,16 +317,14 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
 
     const errors: FetchErrors = {};
 
-    const bookings = bookRes.status === "fulfilled" ? bookRes.value.data : (errors.bookings = true, []);
-    const pos = posRes.status === "fulfilled" ? posRes.value.data : (errors.pos = true, []);
+    const funds = fundsRes.status === "fulfilled" ? fundsRes.value.data : (errors.funds = true, null);
+    const openBills = billsRes.status === "fulfilled" ? billsRes.value.data : (errors.bills = true, []);
     const payables = payRes.status === "fulfilled" ? payRes.value.data : (errors.payables = true, []);
-    const rma = rmaRes.status === "fulfilled" ? rmaRes.value.data : (errors.rma = true, []);
-    const salary = salaryRes.status === "fulfilled" ? salaryRes.value.data : (errors.salary = true, []);
     const rules = rulesRes.status === "fulfilled" ? rulesRes.value.data : (errors.rules = true, []);
     const hand = handRes.status === "fulfilled" ? handRes.value.data : (errors.handovers = true, []);
     const intradayData = intradayRes.status === "fulfilled" ? intradayRes.value.data : (errors.intraday = true, []);
 
-    setData({ bookings, pos, payables, rma, salary });
+    setData({ funds, openBills, payables });
     setPricingRules(rules);
     setHandovers(hand);
     setIntraday(intradayData);
@@ -456,97 +434,52 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
   // ---------------------------------------------------------------------------
   const analytics = useMemo(() => {
     const roundMoney = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+    const f = data.funds;
 
-    const settledWorkshop = data.bookings
-      .filter((b) => b.status === "PAID")
-      .reduce((sum, b) => sum + (b.totalPartsCost || 0), 0);
-    const pendingWorkshop = data.bookings
-      .filter((b) => b.status === "COMPLETED")
-      .reduce((sum, b) => sum + (b.totalPartsCost || 0), 0);
-    const posRev = data.pos.reduce((sum, p) => sum + (p.totalRevenue || 0), 0);
-    // Settled RMA credits count as recovered cash, same definition used on the
-    // Payables page — kept consistent so the two dashboards never disagree on
-    // what "revenue" means for the same underlying data.
-    const settledRmaRev = data.rma
-      .filter((r) => r.financialStatus === "SETTLED")
-      .reduce((sum, r) => sum + (r.totalValue || 0), 0);
+    // Money in / out since the opening balance date, from the backend (same as the
+    // Financial Summary report). Fuel counts every recorded sale, cash or card.
+    const totalGrossRevenue = f?.moneyIn ?? 0;
+    // Bills issued to customers and not yet paid (receivables).
+    const totalPendingCollection = roundMoney(data.openBills.reduce((sum, b) => sum + (b.balanceDue || 0), 0));
 
-    // FUEL STATION CASH. Fuel sales live in their own table and never touch
-    // POS, so before this they were missing from every cash figure. Attendants
-    // take cash at the pump; it only becomes company cash once a supervisor
-    // has counted it (declaredCash) AND finance has approved the handover
-    // ("moved to corporate ledger"). We use declaredCash, not expectedCash, so
-    // a shortfall on a shift reduces cash rather than being hidden. Unapproved
-    // handovers are cash-in-transit — real, but not yet cleared — so they sit
-    // with Pending Collections, exactly like an unpaid workshop invoice.
-    const fuelCashCleared = handovers
-      .filter((h) => h.status === "APPROVED")
-      .reduce((sum, h) => sum + (h.declaredCash || 0), 0);
-    const fuelCashPending = handovers
-      .filter((h) => h.status !== "APPROVED")
-      .reduce((sum, h) => sum + (h.declaredCash || 0), 0);
-
-    const totalGrossRevenue = roundMoney(settledWorkshop + posRev + settledRmaRev + fuelCashCleared);
-    const totalPendingCollection = roundMoney(pendingWorkshop + fuelCashPending);
-
-    // Only invoices with a genuine remaining balance count toward debt — a
-    // fully paid invoice (balance <= 0, allowing for floating point noise)
-    // contributes 0, not a small negative or positive rounding artifact.
     const totalSupplierDebt = data.payables.reduce((sum, p) => {
       const balance = roundMoney((p.totalInvoiceAmount || 0) - (p.amountPaid || 0));
       return sum + (balance > 0.005 ? balance : 0);
     }, 0);
-    // Now correctly includes every invoice's lifetime amountPaid, fully-paid
-    // ones included, since `data.payables` is the full ledger (see fetchAll).
-    // Before this fix, paying an invoice off in full removed it from the
-    // /outstanding endpoint this figure used to read from — silently dropping
-    // that money from "Expenses Paid" and inflating Net Cashflow as a result.
-    const totalPaidOut = data.payables.reduce((sum, p) => sum + (p.amountPaid || 0), 0);
-    // Payroll has no partial-payment concept — a salary record only exists
-    // once it's been processed, which is the same instant the payout happens
-    // — so the full sum here is genuine cash already disbursed.
-    const totalPayrollPaid = data.salary.reduce((sum, r) => sum + (r.totalSalary ?? r.netSalary ?? 0), 0);
-    const outstandingPayablesCount = data.payables.filter((p) => {
-      const balance = roundMoney((p.totalInvoiceAmount || 0) - (p.amountPaid || 0));
-      return balance > 0.005;
-    }).length;
+    const outstandingPayablesCount = data.payables.filter((p) => roundMoney((p.totalInvoiceAmount || 0) - (p.amountPaid || 0)) > 0.005).length;
 
-    // The first four bars add up to Total Gross Revenue; the last is money
-    // earned but not yet collected/cleared (Pending Collections).
+    // The first four bars add up to Money In; the last is billed but not yet collected.
     const revenueStreamData = [
-      { name: "Retail POS", amount: posRev, fill: "#3b82f6" },
-      { name: "Workshop", amount: settledWorkshop, fill: "#10b981" },
-      { name: "Fuel Station", amount: fuelCashCleared, fill: "#06b6d4" },
-      { name: "RMA Credits", amount: settledRmaRev, fill: "#8b5cf6" },
-      { name: "Pending", amount: totalPendingCollection, fill: "#f59e0b" },
+      { name: "Workshop", amount: f?.serviceCenter ?? 0, fill: "#10b981" },
+      { name: "Retail POS", amount: f?.retailPos ?? 0, fill: "#3b82f6" },
+      { name: "Fuel Station", amount: f?.fuelSales ?? 0, fill: "#06b6d4" },
+      { name: "Supplier Refunds", amount: f?.supplierRefunds ?? 0, fill: "#8b5cf6" },
+      { name: "Unpaid Bills", amount: totalPendingCollection, fill: "#f59e0b" },
     ];
 
-    const expenseCategories: Record<string, number> = {};
+    const debtByCategory: Record<string, number> = {};
     data.payables.forEach((p) => {
       const balance = roundMoney((p.totalInvoiceAmount || 0) - (p.amountPaid || 0));
       if (balance > 0.005) {
         const key = p.supplyCategory || "Uncategorized";
-        expenseCategories[key] = (expenseCategories[key] || 0) + balance;
+        debtByCategory[key] = (debtByCategory[key] || 0) + balance;
       }
     });
-    const debtPieData = Object.entries(expenseCategories).map(([name, value]) => ({
-      name: name.replace(/_/g, " "),
-      value,
-    }));
+    const debtPieData = Object.entries(debtByCategory).map(([name, value]) => ({ name: name.replace(/_/g, " "), value }));
 
     const cashFlowPipeline = [
-      { name: "Gross Income", value: totalGrossRevenue, fill: "#10b981" },
-      { name: "Supplier Paid", value: totalPaidOut, fill: "#3b82f6" },
-      { name: "Payroll Paid", value: totalPayrollPaid, fill: "#a855f7" },
-      { name: "Pending Debt", value: totalSupplierDebt, fill: "#ef4444" },
+      { name: "Money In", value: totalGrossRevenue, fill: "#10b981" },
+      { name: "Expenses", value: f?.expenses ?? 0, fill: "#f97316" },
+      { name: "Supplier Paid", value: f?.supplierPayments ?? 0, fill: "#3b82f6" },
+      { name: "Payroll Paid", value: f?.payroll ?? 0, fill: "#a855f7" },
+      { name: "Still Owed", value: totalSupplierDebt, fill: "#ef4444" },
     ];
 
     return {
-      totalGrossRevenue, totalPendingCollection, totalSupplierDebt, totalPayrollPaid, totalPaidOut,
-      fuelCashCleared,
+      totalGrossRevenue, totalPendingCollection, totalSupplierDebt, sinceDate: f?.asOfDate ?? null,
       outstandingPayablesCount, revenueStreamData, debtPieData, cashFlowPipeline,
     };
-  }, [data, handovers]);
+  }, [data]);
 
   // Real intraday data (GET /api/analytics/intraday-cashflow) — fuel + retail
   // POS sales bucketed by the hour they actually happened, for today only.
@@ -809,9 +742,9 @@ export default function FinanceDashboard({ userName }: { userName?: string }) {
 
       {/* KPI CARDS */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KpiCard icon={<IconWallet className="w-5 h-5" />} label="Total Gross Revenue" value={formatCompactLKR(analytics.totalGrossRevenue)} exactValue={formatLKR(analytics.totalGrossRevenue)} sub="Cash actually received" accent="text-emerald-600 bg-emerald-50" />
+        <KpiCard icon={<IconWallet className="w-5 h-5" />} label="Money In" value={formatCompactLKR(analytics.totalGrossRevenue)} exactValue={formatLKR(analytics.totalGrossRevenue)} sub={analytics.sinceDate ? `Received since ${analytics.sinceDate}` : "All money received"} accent="text-emerald-600 bg-emerald-50" />
         <KpiCard icon={<IconAlertTriangle className="w-5 h-5" />} label="Current Supplier Debt" value={formatCompactLKR(analytics.totalSupplierDebt)} exactValue={formatLKR(analytics.totalSupplierDebt)} sub="Still owed to suppliers" accent="text-red-600 bg-red-50" />
-        <KpiCard icon={<IconClock className="w-5 h-5" />} label="Pending Collections" value={formatCompactLKR(analytics.totalPendingCollection)} exactValue={formatLKR(analytics.totalPendingCollection)} sub="Unpaid jobs + shift cash awaiting audit" accent="text-amber-600 bg-amber-50" />
+        <KpiCard icon={<IconClock className="w-5 h-5" />} label="Unpaid Customer Bills" value={formatCompactLKR(analytics.totalPendingCollection)} exactValue={formatLKR(analytics.totalPendingCollection)} sub="Billed, not yet collected" accent="text-amber-600 bg-amber-50" />
         <KpiCard icon={<IconFileText className="w-5 h-5" />} label="Accounts Payable Ledger" value={String(analytics.outstandingPayablesCount)} sub="unpaid invoices" accent="text-blue-600 bg-blue-50" />
       </div>
 
