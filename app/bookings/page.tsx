@@ -30,7 +30,7 @@ export default function WorkshopPage() {
   const isTechnician = role === "TECHNICIAN";
   const canHandOver = isManager || role === "CUSTOMER_RELATIONS_OFFICER";
 
-  const [tab, setTab] = useState<Tab | null>(null);
+  const [chosenTab, setTab] = useState<Tab | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [myJobs, setMyJobs] = useState<Booking[]>([]);
   const [bills, setBills] = useState<Record<number, JobBill>>({});
@@ -46,7 +46,8 @@ export default function WorkshopPage() {
   const [creating, setCreating] = useState(false);
 
   const load = () => {
-    api.get<Booking[]>("/bookings").then(res => setBookings(res.data)).catch(() => setBookings([]));
+    api.get<Booking[]>("/bookings").then(res => setBookings(res.data))
+      .catch(err => { setBookings([]); setNotice({ type: "error", text: errorText(err, "Couldn't load the job board. Refresh to try again.") }); });
     if (isTechnician) api.get<Booking[]>("/bookings/my-jobs").then(res => setMyJobs(res.data)).catch(() => setMyJobs([]));
     // Payment state of finished jobs (technicians don't have access to billing).
     else api.get<(JobBill & { sourceType: string; sourceId: number })[]>("/invoices")
@@ -54,10 +55,13 @@ export default function WorkshopPage() {
       .catch(() => setBills({}));
   };
 
+  // The chosen tab, or this user's default until they pick one.
+  const tab: Tab | null = chosenTab ?? (user ? (isTechnician ? "mine" : "requests") : null);
+
   useEffect(() => {
-    if (!user) return;
-    setTab(prev => prev ?? (isTechnician ? "mine" : "requests"));
-    load();
+    // Started from a callback so the state updates aren't made inside the effect body.
+    if (user) Promise.resolve().then(load);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when the signed-in user changes
   }, [user]);
 
   const flash = (type: "ok" | "error", text: string) => {

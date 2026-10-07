@@ -19,8 +19,10 @@ export default function CustomerUpcoming({ bookings, cutoffHours, onChanged }: {
   const [openTimeline, setOpenTimeline] = useState<number | null>(null);
   const [events, setEvents] = useState<BookingEvent[]>([]);
 
+  // "Now" as of opening the page (reading the clock during render isn't allowed).
+  const [now] = useState(() => Date.now());
   const canChange = (b: Booking) =>
-    ["PENDING", "CONFIRMED"].includes(b.status) && new Date(b.preferredDate).getTime() - Date.now() > cutoffHours * 3_600_000;
+    ["PENDING", "CONFIRMED"].includes(b.status) && new Date(b.preferredDate).getTime() - now > cutoffHours * 3_600_000;
 
   const cancel = async (b: Booking) => {
     const reason = prompt(`Cancel your ${b.servicePackage} on ${fmtWhen(b.preferredDate)}? You can tell us why (optional):`);

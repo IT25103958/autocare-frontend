@@ -19,14 +19,15 @@ export default function WorkshopDashboard() {
   const { user } = useAuth();
   const [bookings, setBookings] = useState<ServiceBooking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
 
   useEffect(() => {
     const fetchLiveStats = async () => {
       try {
         const res = await api.get("/bookings");
         setBookings(res.data);
-      } catch (error) {
-        console.error("Failed to fetch workshop stats");
+      } catch {
+        setLoadFailed(true);
       } finally {
         setLoading(false);
       }
@@ -45,6 +46,11 @@ export default function WorkshopDashboard() {
 
   return (
     <div className="space-y-6 animate-fade-in-up">
+      {loadFailed && (
+        <p role="alert" className="px-4 py-3 rounded-xl text-sm font-bold border bg-red-50 text-red-700 border-red-200">
+          Some of your workshop data couldn&apos;t be loaded. Refresh the page to try again.
+        </p>
+      )}
       <div className="flex justify-between items-center bg-white p-8 rounded-[2rem] border border-slate-200 shadow-sm">
         <div>
           <h2 className="text-3xl font-black text-slate-900 tracking-tight">Workshop Operations</h2>

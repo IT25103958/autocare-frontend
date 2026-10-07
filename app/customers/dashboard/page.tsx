@@ -23,8 +23,7 @@ interface CustomerProfile {
 }
 
 export default function CustomerDashboard() {
-  const { user } = useAuth();
-  const [isMounted, setIsMounted] = useState(false);
+  const { user, isLoading } = useAuth();
   const [bookings, setBookings] = useState<ServiceBooking[]>([]);
   const [profile, setProfile] = useState<CustomerProfile | null>(null);
   const [profileMissing, setProfileMissing] = useState(false);
@@ -42,10 +41,10 @@ export default function CustomerDashboard() {
   };
 
   useEffect(() => {
-    setIsMounted(true);
     if (!user) return;
 
-    loadBookings();
+    // Started from a callback so the state updates aren't made inside the effect body.
+    Promise.resolve().then(loadBookings);
     api.get("/customers/my-profile")
       .then(res => { setProfile(res.data); setProfileMissing(false); })
       .catch(err => { setProfile(null); setProfileMissing(err?.response?.status === 404); });
@@ -93,7 +92,7 @@ export default function CustomerDashboard() {
     else if (activeBooking.status === "COMPLETED" || activeBooking.status === "PAID") { progressWidth = "100%"; progressStage = 3; }
   }
 
-  if (!isMounted) return null;
+  if (isLoading) return null;
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-slate-50 p-6 lg:p-12">
@@ -252,7 +251,7 @@ export default function CustomerDashboard() {
                 ))}
                 {myGarage.length === 0 && (
                   <div className="col-span-full p-6 text-center text-slate-400 text-sm font-medium border border-dashed rounded-2xl">
-                    You haven't serviced any vehicles with us yet.
+                    You haven&apos;t serviced any vehicles with us yet.
                   </div>
                 )}
               </div>

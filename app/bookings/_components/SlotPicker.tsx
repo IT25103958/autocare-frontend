@@ -17,13 +17,22 @@ export default function SlotPicker({ packageId, value, onChange, maxDaysAhead = 
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!packageId || !date) { setSlots(null); return; }
+  // Reset the list when the package or day changes (state adjusted during render, not in an effect).
+  const [loadedFor, setLoadedFor] = useState("");
+  const key = `${packageId}|${date}`;
+  if (loadedFor !== key) {
+    setLoadedFor(key);
     setSlots(null);
     setError("");
+  }
+
+  useEffect(() => {
+    if (!packageId || !date) return;
+    let alive = true;
     api.get<Slot[]>("/bookings/availability", { params: { date, packageId } })
-      .then(res => setSlots(res.data))
-      .catch(() => setError("Couldn't load available times."));
+      .then(res => { if (alive) setSlots(res.data); })
+      .catch(() => { if (alive) setError("Couldn't load available times."); });
+    return () => { alive = false; };
   }, [packageId, date]);
 
   const max = new Date(today);

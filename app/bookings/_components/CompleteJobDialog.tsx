@@ -13,6 +13,7 @@ interface SparePart {
   partCode: string;
   currentStock: number;
   unitPrice: number;
+  active?: boolean;
 }
 
 // Digital job card: record parts used (deducted from stock in one transaction),
@@ -42,6 +43,7 @@ export default function CompleteJobDialog({ booking, onClose, onSaved }: {
     api.get<Booking[]>(`/bookings/vehicle/${encodeURIComponent(booking.vehicleRegNo)}/history`)
       .then(res => setHistory(res.data.filter(h => h.bookingID !== booking.bookingID)))
       .catch(() => setHistory([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per job
   }, [booking.bookingID]);
 
   const idOf = (p: SparePart) => p.partID || p.partId || p.id || 0;
@@ -60,7 +62,7 @@ export default function CompleteJobDialog({ booking, onClose, onSaved }: {
 
   const partsTotal = selected.reduce((sum, s) => sum + s.qty * s.unitPrice, 0);
   const visibleParts = inventory
-    .filter(p => p.currentStock > 0)
+    .filter(p => p.currentStock > 0 && p.active !== false) // discontinued parts can't be fitted
     .filter(p => !search || `${p.name} ${p.partCode}`.toLowerCase().includes(search.toLowerCase()));
 
   const save = async () => {

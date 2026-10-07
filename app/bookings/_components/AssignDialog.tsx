@@ -44,6 +44,7 @@ export default function AssignDialog({ booking, onClose, onSaved }: {
         }
       })
       .catch(err => setError(errorText(err, "Couldn't load technicians.")));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load once per job; the bay suggestion only fills an empty choice
   }, [booking.bookingID]);
 
   const pickTech = (t: TechOption) => {
@@ -93,7 +94,7 @@ export default function AssignDialog({ booking, onClose, onSaved }: {
               ))}
             </ul>
           )}
-          <p className="text-xs text-slate-500 mt-2">Only technicians rostered at the job's time can be assigned — add a shift on the Technician Roster if needed.</p>
+          <p className="text-xs text-slate-500 mt-2">Only technicians rostered at the job&apos;s time can be assigned — add a shift on the Technician Roster if needed.</p>
         </div>
 
         <div>

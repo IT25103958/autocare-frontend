@@ -130,8 +130,10 @@ export const fmtDuration = (minutes: number | null) => {
 export const isoDate = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-export const errorText = (err: any, fallback: string) =>
-  typeof err?.response?.data === "string" && err.response.data.length < 300 ? err.response.data : fallback;
+export const errorText = (err: unknown, fallback: string) => {
+  const data = (err as { response?: { data?: unknown } })?.response?.data;
+  return typeof data === "string" && data.length < 300 ? data : fallback;
+};
 
 export const ACTIVE_STATUSES = ["PENDING", "CONFIRMED", "IN_PROGRESS", "DELAYED"];
 

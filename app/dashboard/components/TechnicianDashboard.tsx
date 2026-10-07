@@ -28,6 +28,7 @@ export default function TechnicianDashboard() {
   const [activeJobs, setActiveJobs] = useState<ServiceBooking[]>([]);
   const [historyJobs, setHistoryJobs] = useState<ServiceBooking[]>([]);
   const [upcomingShifts, setUpcomingShifts] = useState<StaffShift[]>([]);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [queueCount, setQueueCount] = useState(0);
 
   const fetchDashboardData = async () => {
@@ -55,17 +56,23 @@ export default function TechnicianDashboard() {
           .sort((a, b) => new Date(a.shiftDate).getTime() - new Date(b.shiftDate).getTime()));
       }
 
-    } catch (error) {
-      console.error("Failed to fetch technician dashboard data");
+    } catch {
+      setLoadFailed(true);
     }
   };
 
   useEffect(() => {
-    if (user) fetchDashboardData();
+    // Started from a callback so the state updates aren't made inside the effect body.
+    if (user) Promise.resolve().then(fetchDashboardData);
   }, [user]);
 
   return (
     <div className="space-y-8 animate-fade-in-up max-w-5xl mx-auto pb-12">
+      {loadFailed && (
+        <p role="alert" className="px-4 py-3 rounded-xl text-sm font-bold border bg-red-50 text-red-700 border-red-200">
+          Some of your workshop data couldn&apos;t be loaded. Refresh the page to try again.
+        </p>
+      )}
 
       {/* HEADER BANNER */}
       <div className="bg-slate-900 p-8 rounded-[2rem] shadow-xl text-white flex flex-col md:flex-row justify-between items-center gap-6 relative overflow-hidden">
