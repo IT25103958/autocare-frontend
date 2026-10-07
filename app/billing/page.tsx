@@ -56,12 +56,15 @@ function BillingDesk() {
   const [collecting, setCollecting] = useState<Invoice | null>(null);
   const [notice, setNotice] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
+  // A failed load must not look like "no bills to collect".
+  const loadFailed = (err: unknown) => setNotice({ type: "error", text: errText(err, "Some billing data couldn't be loaded. Refresh before relying on these figures.") });
   const load = () => {
-    api.get<Invoice[]>("/invoices/outstanding").then(res => setOutstanding(res.data)).catch(() => setOutstanding([]));
-    api.get<Invoice[]>("/invoices").then(res => setAll(res.data)).catch(() => setAll([]));
-    api.get<DaySummary>("/invoices/day-summary", { params: { date: dayDate } }).then(res => setDay(res.data)).catch(() => setDay(null));
+    api.get<Invoice[]>("/invoices/outstanding").then(res => setOutstanding(res.data)).catch(err => { setOutstanding([]); loadFailed(err); });
+    api.get<Invoice[]>("/invoices").then(res => setAll(res.data)).catch(err => { setAll([]); loadFailed(err); });
+    api.get<DaySummary>("/invoices/day-summary", { params: { date: dayDate } }).then(res => setDay(res.data)).catch(err => { setDay(null); loadFailed(err); });
   };
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when the user or the chosen day changes
   useEffect(() => { if (user) load(); }, [user, dayDate]);
   // ...and scroll to the row it named (?focus=...) and highlight it.
   useEffect(() => highlightFocusTarget(), []);

@@ -21,7 +21,7 @@ interface Option { code: string; name: string }
 
 interface Session {
   token: string;
-  status: "PENDING" | "PAID" | "FAILED" | "CANCELLED" | "EXPIRED";
+  status: "PENDING" | "PROCESSING" | "PAID" | "FAILED" | "CANCELLED" | "EXPIRED";
   merchant: string;
   invoiceId: number;
   invoiceNumber: string;
@@ -628,10 +628,12 @@ function Result({ session }: { session: Session }) {
   const title = paid ? "Payment successful"
     : session.status === "CANCELLED" ? "Payment cancelled"
     : session.status === "EXPIRED" ? "This payment page has expired"
+    : session.status === "PROCESSING" ? "Payment in progress"
     : "Payment failed";
   const message = paid ? `${lkr(session.amount)} was paid to ${session.merchant}.`
     : session.status === "CANCELLED" ? "You cancelled the payment. Nothing was charged."
     : session.status === "EXPIRED" ? "The checkout timed out before a payment was made. Nothing was charged."
+    : session.status === "PROCESSING" ? "Your payment is still being processed. Refresh this page in a moment to see the result."
     : session.lastError || "The payment could not be completed. Nothing was charged.";
 
   const receipt = async () => {
