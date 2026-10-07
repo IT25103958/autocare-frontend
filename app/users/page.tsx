@@ -128,7 +128,7 @@ export default function UserManagementPage() {
     }
   };
 
-  // Staff pages are guarded by middleware too; this covers a role that reached the page some other way.
+  // Staff pages are guarded by proxy.ts too; this covers a role that reached the page some other way.
   if (currentUser && !["SUPER_ADMIN", "SYSTEM_ADMIN", "EXECUTIVE_OWNER"].includes(myRole)) {
     return <div className="p-12 text-center text-red-600 font-bold">Only administrators can open this page.</div>;
   }

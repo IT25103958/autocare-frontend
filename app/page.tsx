@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "./context/AuthContext";
-import api from "../utils/axiosInstance";
+import { publicApi } from "../utils/axiosInstance";
 import { CONTACT, WhatsAppIcon } from "./_components/contact";
 import SmartImage from "./_components/SmartImage";
 import { FloatingBookBar, FuelStation, RotatingWords, ScrollProgress, ServiceFinder, TiltCard, useInView } from "./_components/HomeExtras";
@@ -311,7 +311,7 @@ export default function HomePage() {
   const [stepsRef, stepsInView] = useInView<HTMLDivElement>(0.4);
 
   useEffect(() => {
-    api.get<ServicePackage[]>("/service-packages")
+    publicApi.get<ServicePackage[]>("/service-packages")
       .then(res => setPackages(res.data.length ? res.data : FALLBACK_PACKAGES))
       .catch(() => setPackages(FALLBACK_PACKAGES));
   }, []);

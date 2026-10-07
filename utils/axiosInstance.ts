@@ -35,27 +35,46 @@ api.interceptors.request.use(
     }
 );
 
+// Clears the saved session (localStorage + the cookies proxy.ts reads).
+export function clearStoredSession() {
+    localStorage.removeItem('authUser');
+    localStorage.removeItem('jwtToken');
+    document.cookie = 'jwtToken=; path=/; max-age=0; SameSite=Strict';
+    document.cookie = 'userRole=; path=/; max-age=0; SameSite=Strict';
+}
+
+// Pages anyone can open; an expired session there just signs the visitor out quietly.
+const PUBLIC_PATHS = ['/', '/login', '/register', '/forgot-password'];
+
 // Account-level responses from the backend's JWT filter:
-//  - ACCOUNT_DISABLED: the account was deactivated -> sign out.
-//  - PASSWORD_CHANGE_REQUIRED: a temporary password is still in use.
+//  - SESSION_EXPIRED / LOGIN_REQUIRED (401): the token is too old (24 h) or was
+//    signed before the server restarted -> sign in again, then come back here.
+//  - ACCOUNT_DISABLED (401): the account was deactivated -> sign out.
+//  - PASSWORD_CHANGE_REQUIRED (403): a temporary password is still in use.
+// Full-page navigation is deliberate: it also resets every page's in-memory state.
+/* eslint-disable @next/next/no-location-assign-relative-destination -- runs outside React (no router), and a full reload is wanted */
 api.interceptors.response.use(
     (response) => response,
     (error) => {
+        const status = error?.response?.status;
         const code = error?.response?.data;
         if (typeof window !== 'undefined') {
-            if (error?.response?.status === 401 && code === 'ACCOUNT_DISABLED') {
-                localStorage.removeItem('authUser');
-                localStorage.removeItem('jwtToken');
-                document.cookie = 'jwtToken=; path=/; max-age=0; SameSite=Strict';
-                document.cookie = 'userRole=; path=/; max-age=0; SameSite=Strict';
-                window.location.href = '/login';
-            } else if (error?.response?.status === 403 && code === 'PASSWORD_CHANGE_REQUIRED'
-                && window.location.pathname !== '/change-password') {
+            const path = window.location.pathname;
+            if (status === 401 && code === 'ACCOUNT_DISABLED') {
+                clearStoredSession();
+                window.location.href = '/login?disabled=1';
+            } else if (status === 401 && (code === 'SESSION_EXPIRED' || code === 'LOGIN_REQUIRED')) {
+                clearStoredSession();
+                if (!PUBLIC_PATHS.includes(path)) {
+                    window.location.href = `/login?expired=1&redirect=${encodeURIComponent(path + window.location.search)}`;
+                }
+            } else if (status === 403 && code === 'PASSWORD_CHANGE_REQUIRED' && path !== '/change-password') {
                 window.location.href = '/change-password';
             }
         }
         return Promise.reject(error);
     }
 );
+/* eslint-enable @next/next/no-location-assign-relative-destination */
 
 export default api;

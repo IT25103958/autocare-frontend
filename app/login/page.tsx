@@ -79,7 +79,7 @@ function LoginForm() {
       // new one; the backend refuses every other request until then.
       setSignedIn(true);
       setTimeout(() => {
-        // Back to the page the user was sent here from (middleware adds ?redirect=).
+        // Back to the page the user was sent here from (proxy.ts adds ?redirect=).
         // Only internal paths, so a crafted link can't send them to another site.
         const back = params.get("redirect");
         const safeBack = back && back.startsWith("/") && !back.startsWith("//") && !back.includes("\\") ? back : "/";
@@ -125,7 +125,10 @@ function LoginForm() {
           </div>
         </Stagger>
 
-        {serverError && <AuthBanner tone="error">{serverError}</AuthBanner>}
+        {serverError ? <AuthBanner tone="error">{serverError}</AuthBanner>
+          : params.get("expired") ? <AuthBanner tone="info">Your session has ended. Sign in again to carry on where you were.</AuthBanner>
+          : params.get("disabled") ? <AuthBanner tone="error">This account has been deactivated. Contact Lanka Auto Care.</AuthBanner>
+          : null}
 
         <Stagger i={3} className="pt-1">
           <AuthButton busy={isSubmitting} done={signedIn} busyText="Signing in…" doneText="Signed in">Sign in</AuthButton>

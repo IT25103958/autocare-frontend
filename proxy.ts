@@ -47,10 +47,15 @@ const rolePermissions: Record<string, string[]> = {
   '/roster':     ['TECHNICIAN', 'FUEL_ATTENDANT', 'FUEL_STATION_SUPERVISOR', 'ACCOUNTS_FINANCE_OFFICER', 'INVENTORY_MANAGER', 'CUSTOMER_RELATIONS_OFFICER', 'SERVICE_CENTER_MANAGER'],
   '/users':      [],
   '/pos':        ['INVENTORY_MANAGER'],
-  '/audit':      []
+  '/audit':      [],
+  // Any signed-in role (an empty list would mean admins only).
+  '/dashboard':       ['*'],
+  '/profile':         ['*'],
+  '/change-password': ['*'],
 };
 
-export function middleware(request: NextRequest) {
+// Next 16 calls this file proxy.ts (it was middleware.ts); it runs before a page loads.
+export function proxy(request: NextRequest) {
   const token = request.cookies.get('jwtToken')?.value;
   const role = request.cookies.get('userRole')?.value;
   const path = request.nextUrl.pathname;
@@ -72,7 +77,7 @@ export function middleware(request: NextRequest) {
     // UI guard only: the role cookie is set by the browser, so the backend's
     // own authorization remains the real check.
     const allowedRoles = rolePermissions[matchedRoute];
-    const hasAccess = allowedRoles.includes(role) || role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN' || role === 'EXECUTIVE_OWNER';
+    const hasAccess = allowedRoles.includes('*') || allowedRoles.includes(role) || role === 'SYSTEM_ADMIN' || role === 'SUPER_ADMIN' || role === 'EXECUTIVE_OWNER';
 
     if (!hasAccess) {
       return NextResponse.redirect(new URL('/', request.url));
@@ -87,6 +92,6 @@ export const config = {
     '/bookings/:path*', '/tanks/:path*', '/fuel/:path*', '/fuel-deliveries/:path*', '/fuel-passes/:path*', '/suppliers/:path*', '/payables/:path*',
     '/salary/:path*', '/complaints/:path*', '/customers/:path*', '/deliveries/:path*',
     '/parts/:path*', '/rma/:path*', '/support/:path*', '/roster/:path*', '/users/:path*',
-    '/pos/:path*', '/audit/:path*', '/membership/:path*', '/billing/:path*', '/expenses/:path*', '/attendant-review/:path*', '/reports/:path*', '/warranty/:path*', '/pay/:path*'
+    '/pos/:path*', '/audit/:path*', '/dashboard/:path*', '/profile/:path*', '/change-password/:path*', '/membership/:path*', '/billing/:path*', '/expenses/:path*', '/attendant-review/:path*', '/reports/:path*', '/warranty/:path*', '/pay/:path*'
   ],
 };

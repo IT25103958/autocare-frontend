@@ -17,7 +17,7 @@ import ThemeToggle from "./ThemeToggle";
 type IconName =
   | "dashboard" | "pos" | "billing" | "payables" | "payroll" | "suppliers" | "fuel" | "tank" | "truck"
   | "rma" | "ticket" | "roster" | "payslip" | "users" | "shield" | "wrench" | "box" | "customers"
-  | "star" | "garage" | "support" | "calendar" | "finance" | "briefcase" | "settings" | "qr";
+  | "star" | "garage" | "support" | "calendar" | "finance" | "briefcase" | "settings" | "qr" | "user" | "key";
 
 interface NavLink { name: string; href: string; icon: IconName; hint: string }
 type NavItem =
@@ -161,6 +161,12 @@ function quickFor(role: string): NavLink[] {
       return [];
   }
 }
+
+// Account pages every signed-in user has; added to the page search.
+const ACCOUNT_LINKS: (NavLink & { section: string })[] = [
+  { name: "My Profile", href: "/profile", icon: "user", hint: "Your details & activity", section: "Account" },
+  { name: "Change Password", href: "/change-password", icon: "key", hint: "Set a new password", section: "Account" },
+];
 
 const linksOf = (item: NavItem) => (item.kind === "link" ? [item.link] : item.links);
 
@@ -348,7 +354,12 @@ function AccountMenu() {
   const pathname = usePathname();
   const close = useMemo(() => () => setOpen(false), []);
   useDismiss(open, close, ref);
-  useEffect(() => { setOpen(false); }, [pathname]);
+  // Close after navigating (adjusting state during render, as React recommends, instead of an effect).
+  const [seenPath, setSeenPath] = useState(pathname);
+  if (seenPath !== pathname) {
+    setSeenPath(pathname);
+    setOpen(false);
+  }
   if (!user) return null;
   const name = user.fullName || user.username;
 
@@ -669,11 +680,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  useEffect(() => { setMobileOpen(false); }, [pathname]);
+  // Close the mobile menu after navigating (state adjusted during render, not in an effect).
+  const [seenPath, setSeenPath] = useState(pathname);
+  if (seenPath !== pathname) {
+    setSeenPath(pathname);
+    setMobileOpen(false);
+  }
 
   const showNav = !!user && !user.mustChangePassword;
   const items = useMemo(() => (showNav ? navFor(user!.role, supplierCategories) : []), [showNav, user, supplierCategories]);
-  const pages = useMemo(() => flatten(items), [items]);
+  const pages = useMemo(() => [...flatten(items), ...(showNav ? ACCOUNT_LINKS : [])], [items, showNav]);
   const quick = useMemo(() => (showNav ? quickFor(user!.role) : []), [showNav, user]);
   const current = activeHref(pathname, pages);
 

@@ -355,11 +355,13 @@ export function AuthField({ label, icon, status = "idle", note, labelExtra, reve
 }
 
 // Banner for answers from the server (wrong password, account taken, ...).
-export function AuthBanner({ tone, children }: { tone: "error" | "success"; children: ReactNode }) {
-  const cls = tone === "error" ? "bg-red-500/10 border-red-500/30 text-red-300" : "bg-emerald-500/10 border-emerald-500/30 text-emerald-300";
+export function AuthBanner({ tone, children }: { tone: "error" | "success" | "info"; children: ReactNode }) {
+  const cls = tone === "error" ? "bg-red-500/10 border-red-500/30 text-red-300"
+    : tone === "info" ? "bg-sky-500/10 border-sky-500/30 text-sky-200"
+    : "bg-emerald-500/10 border-emerald-500/30 text-emerald-300";
   return (
     <div role="alert" className={`auth-msg-in flex items-start gap-3 rounded-xl border px-4 py-3 ${cls}`}>
-      <AuthIcon name={tone === "error" ? "alert" : "check"} className="w-5 h-5 shrink-0" />
+      <AuthIcon name={tone === "success" ? "check" : "alert"} className="w-5 h-5 shrink-0" />
       <p className="text-sm font-semibold">{children}</p>
     </div>
   );

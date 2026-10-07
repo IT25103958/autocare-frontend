@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { clearStoredSession } from "../../utils/axiosInstance";
 
 // Enforce strict architecture roles in the frontend
 export type AppRole =
@@ -39,6 +40,34 @@ interface AuthContextType {
   updateUser: (changes: Partial<Pick<User, "fullName">>) => void;
 }
 
+// True when the JWT's own expiry time (exp, in seconds) has passed, or it can't be read.
+function tokenExpired(token: string): boolean {
+  try {
+    const part = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const { exp } = JSON.parse(atob(part)) as { exp?: number };
+    return typeof exp === "number" && exp * 1000 <= Date.now();
+  } catch {
+    return true;
+  }
+}
+
+// The saved session, or null when there is none, it is unreadable or its token has expired.
+function readStoredUser(): User | null {
+  try {
+    const raw = localStorage.getItem("authUser");
+    if (!raw) return null;
+    const stored = JSON.parse(raw) as User;
+    if (!stored?.token || tokenExpired(stored.token)) {
+      clearStoredSession();
+      return null;
+    }
+    return stored;
+  } catch {
+    clearStoredSession();
+    return null;
+  }
+}
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -46,12 +75,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
 
+  // localStorage only exists in the browser, so the session is read after the first
+  // render (reading it during render would make the server and browser HTML differ).
   useEffect(() => {
-    const storedUser = localStorage.getItem("authUser");
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
+    /* eslint-disable react-hooks/set-state-in-effect -- one-time read of browser storage after hydration */
+    setUser(readStoredUser());
     setIsLoading(false);
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, []);
 
   const login = (userData: User) => {
@@ -83,11 +113,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem("authUser");
-    localStorage.removeItem("jwtToken");
-
-    document.cookie = "jwtToken=; path=/; max-age=0; SameSite=Strict";
-    document.cookie = "userRole=; path=/; max-age=0; SameSite=Strict";
+    clearStoredSession();
 
     router.push("/login");
   };
