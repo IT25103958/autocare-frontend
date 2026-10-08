@@ -119,8 +119,15 @@ const SERVICES = [
   { icon: ICON.star, title: "Lanka Auto Rewards", image: "/images/service-rewards.jpg", focus: "object-[50%_20%]", text: "Earn points on every paid service and use them to pay part of your next bill.", tone: "from-rose-700 to-slate-900" },
 ];
 
-// Backdrops for the package cards, cycled by position.
-const PACKAGE_PHOTOS = ["/images/service-servicing.jpg", "/images/service-parts.jpg", "/images/service-diagnostics.jpg", "/images/service-repair.jpg"];
+// Backdrop for a package card, picked from its name so the photo stays with the
+// package when packages are added, removed or repriced. First match wins.
+const PACKAGE_PHOTOS: [RegExp, string][] = [
+  [/brake|rotor|suspension|clutch|repair|tyre|tire|wheel|align/i, "/images/service-repair.jpg"],
+  [/battery|hybrid|diagnos|scan|electr|a\/c|air.?con/i, "/images/service-diagnostics.jpg"],
+  [/oil|filter|fluid|coolant|lube|belt|spark|plug/i, "/images/service-parts.jpg"],
+];
+const packagePhoto = (name: string) =>
+  PACKAGE_PHOTOS.find(([pattern]) => pattern.test(name))?.[1] ?? "/images/service-servicing.jpg";
 
 const ABOUT_POINTS = [
   "Scanner diagnostics for engine, electrical and hybrid systems",
@@ -527,7 +534,7 @@ export default function HomePage() {
                   <article className="group h-full flex flex-col overflow-hidden rounded-2xl ring-1 ring-slate-200 bg-white shadow-sm transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl hover:shadow-blue-950/20">
                     <div className="relative h-44 overflow-hidden bg-gradient-to-b from-[#0a1430] to-[#1e2d57]">
                       <div className="absolute inset-0 transition-transform duration-700 group-hover:scale-110">
-                        <SmartImage src={PACKAGE_PHOTOS[i % PACKAGE_PHOTOS.length]} alt="" className="w-full h-full object-cover" />
+                        <SmartImage src={packagePhoto(p.name)} alt="" className="w-full h-full object-cover" />
                       </div>
                       <div className="absolute inset-0 bg-gradient-to-t from-[#0a1430] via-[#0a1430]/75 to-[#0a1430]/40" aria-hidden="true" />
                       <div className="absolute inset-x-0 bottom-0 p-5">
@@ -536,7 +543,8 @@ export default function HomePage() {
                         </span>
                         <p className="mt-3 text-lg text-white font-black leading-tight">{p.name}</p>
                       </div>
-                      {i === 0 && <span className="absolute top-3 right-3 rounded-full bg-amber-400 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-900">Most popular</span>}
+                      {/* Packages come sorted by price, so the first card is the cheapest. */}
+                      {i === 0 && <span className="absolute top-3 right-3 rounded-full bg-amber-400 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-900">Best value</span>}
                     </div>
                     <div className="bg-rose-600 text-white text-center py-3.5 font-black text-lg tracking-tight">
                       LKR {rupees(p.price)} <span className="font-bold text-rose-100">+ Upwards</span>
