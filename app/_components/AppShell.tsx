@@ -37,7 +37,7 @@ const L = {
   tanks: { name: "Wet Stock", href: "/tanks", icon: "tank", hint: "Tank levels, dips & prices" },
   fuelDeliveries: { name: "Fuel Deliveries", href: "/fuel-deliveries", icon: "truck", hint: "Fuel orders & receipts" },
   pumpSales: { name: "Pump Sales", href: "/fuel", icon: "fuel", hint: "Pumps, sales & shifts" },
-  fuelPasses: { name: "Fuel Passes", href: "/fuel-passes", icon: "qr", hint: "QR passes & weekly quotas" },
+  fuelPasses: { name: "Fuel Rewards", href: "/fuel-passes", icon: "qr", hint: "QR cards that earn loyalty points" },
   jobCards: { name: "Job Cards", href: "/bookings", icon: "wrench", hint: "Bookings & workshop jobs" },
   parts: { name: "Parts Catalog", href: "/parts", icon: "box", hint: "Stock, reorders & history" },
   deliveries: { name: "Deliveries", href: "/deliveries", icon: "truck", hint: "Parts purchase orders" },
@@ -312,7 +312,7 @@ function PageSearch({ pages }: { pages: (NavLink & { section: string })[] }) {
       <form role="search" onSubmit={e => { e.preventDefault(); if (results[cursor]) go(results[cursor].href); }}
         className={`flex items-center h-11 rounded-full border-2 bg-white pl-5 pr-1 transition-colors ${open ? "border-blue-600" : "border-slate-900"}`}>
         <input value={query} onChange={e => { setQuery(e.target.value); setOpen(true); setCursor(0); }} onFocus={() => setOpen(true)} onKeyDown={onKeyDown}
-          placeholder="Search pages — billing, roster, parts…" aria-label="Search pages" aria-expanded={open} aria-controls="page-search-results" role="combobox" aria-autocomplete="list"
+          placeholder="Search pages" aria-label="Search pages" aria-expanded={open} aria-controls="page-search-results" role="combobox" aria-autocomplete="list"
           className="flex-1 min-w-0 bg-transparent text-sm text-slate-900 placeholder-slate-400 outline-none" />
         <button type="submit" aria-label="Go" className="w-14 h-8 rounded-full bg-slate-900 hover:bg-blue-700 text-white flex items-center justify-center transition-colors">
           <Icon name="search" className="w-[18px] h-[18px]" strokeWidth={2.4} />

@@ -21,16 +21,25 @@ export interface LoyaltyTransaction {
   transactionId: number;
   customerId: number;
   customerName: string;
-  type: "EARNED" | "ADJUSTMENT";
+  type: "EARNED" | "ADJUSTMENT" | "REDEEMED" | "FUEL_EARNED" | "FUEL_REVERSED";
   points: number;
   balanceAfter: number;
   bookingId: number | null;
+  fuelSaleId: number | null;
   reason: string | null;
   performedBy: string;
   createdAt: string;
 }
 
 export const TIER_ORDER = ["BRONZE", "SILVER", "GOLD", "PLATINUM"] as const;
+
+export const LOYALTY_TYPE_LABEL: Record<LoyaltyTransaction["type"], string> = {
+  EARNED: "Earned",
+  ADJUSTMENT: "Adjusted",
+  REDEEMED: "Redeemed",
+  FUEL_EARNED: "Fuel",
+  FUEL_REVERSED: "Fuel voided",
+};
 
 // "+120" / "−50" with a real minus sign.
 export const signedPoints = (n: number) => (n > 0 ? `+${n.toLocaleString()}` : `−${Math.abs(n).toLocaleString()}`);

@@ -133,13 +133,13 @@ export default function ProfileSettings() {
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
               <h2 className="font-bold text-slate-800 mb-3">Points Activity</h2>
               {activity.length === 0 ? (
-                <p className="text-sm text-slate-500">No points yet — you&apos;ll earn them when you pay for a service.</p>
+                <p className="text-sm text-slate-500">No points yet — you&apos;ll earn them when you pay for a service or fill up with your rewards card.</p>
               ) : (
                 <ul className="divide-y divide-slate-100">
                   {activity.slice(0, 8).map(t => (
                     <li key={t.transactionId} className="py-2 flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-sm text-slate-700">{t.type === "EARNED" ? `Service Job #${t.bookingId}` : t.reason}</p>
+                        <p className="text-sm text-slate-700">{t.type === "EARNED" ? `Service Job #${t.bookingId}` : t.type === "FUEL_EARNED" ? `Fuel purchase #${t.fuelSaleId}` : t.reason}</p>
                         <p className="text-xs text-slate-500">{formatWhen(t.createdAt)}</p>
                       </div>
                       <p className={`text-sm font-black tabular-nums ${t.points > 0 ? "text-green-700" : "text-red-700"}`}>{signedPoints(t.points)}</p>

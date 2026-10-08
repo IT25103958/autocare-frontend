@@ -10,7 +10,7 @@ import api from "../../../utils/axiosInstance";
 import { getErrorMessage } from "../../../utils/apiError";
 import { downloadFile } from "../../billing/_components/billing";
 import FuelPassScanner from "./FuelPassScanner";
-import { FuelPass, FuelPassSettings, QuotaBar, categoryName, litres } from "./fuelPass";
+import { FuelPass, FuelPassSettings } from "./fuelPass";
 import { parseSaleSpeech } from "./saleSpeech";
 import { useSaleVoice, VoiceProblem } from "./useSaleVoice";
 
@@ -46,15 +46,18 @@ interface FuelSale {
   vehicleRegNo?: string | null;
   quotaSource?: string | null;
   quotaReference?: string | null;
+  // Loyalty points the rewards card earned; only on the response to the sale itself.
+  pointsEarned?: number | null;
 }
 
-// The amounts drivers ask for most (they match the weekly quota steps).
+// The amounts drivers ask for most.
 const QUICK_LITRES = [5, 10, 15, 20, 25, 40];
 // Drivers as often ask by money ("2000 of petrol").
 const QUICK_RUPEES = [500, 1000, 1500, 2000, 3000, 5000];
 // Litres worked out from a rupee amount keep 5 decimals, so litres x price rounds
 // back to exactly the amount asked for (true for any price under Rs. 1000 / L).
 const litresForRupees = (rupees: number, pricePerLiter: number) => Math.round((rupees / pricePerLiter) * 1e5) / 1e5;
+// LOCAL_PASS only appears on sales from before the station dropped its own quota.
 const QUOTA_LABEL: Record<string, string> = { LOCAL_PASS: "Station pass", NATIONAL_FUEL_PASS: "National Fuel Pass" };
 
 // A colour per fuel so the buttons are told apart at a glance. The buttons
@@ -170,11 +173,11 @@ export default function FuelPosScreen({ historyOnly = false }: { historyOnly?: b
     isOpen: false, saleId: null, reason: "", isSubmitting: false,
   });
 
-  // Fuel pass: the QR the driver shows. Its remaining weekly quota caps the sale.
+  // Rewards card: the station's own QR the driver may show to earn loyalty points.
+  // Optional, and it never limits the sale — the quota is the National Fuel Pass.
   const [passSettings, setPassSettings] = useState<FuelPassSettings | null>(null);
   const [pass, setPass] = useState<FuelPass | null>(null);
   const [scanner, setScanner] = useState({ open: false, busy: false, error: "" });
-  const [quotaChoice, setQuotaChoice] = useState<"LOCAL" | "NATIONAL">("LOCAL");
 
   // For the spoken "confirm": the sale as it stood when the mic was opened, and
   // whether anything was tapped or typed since.
@@ -257,17 +260,11 @@ export default function FuelPosScreen({ historyOnly = false }: { historyOnly?: b
     api.get<FuelPassSettings>("/fuel-pass/settings").then(res => setPassSettings(res.data)).catch(() => setPassSettings(null));
   }, [canSell]);
 
-  const passRequired = passSettings?.required ?? false;
-  const localOn = passSettings?.localEnabled ?? true;
-  const nationalOn = passSettings?.nationalEnabled ?? false;
-  // Which quota authority this sale goes through. Our own pass is the default when both are on.
-  const via: "LOCAL" | "NATIONAL" = nationalOn && (!localOn || quotaChoice === "NATIONAL") ? "NATIONAL" : "LOCAL";
-  const passBlocked = via === "LOCAL" && !!pass && (pass.status !== "ACTIVE" || pass.remaining <= 0);
-
   // National Fuel Pass: the quota is checked and deducted in the official app. Here the
   // attendant only notes what was pumped — recording the sale is their confirmation that
   // it was deducted there, so nothing extra is typed or ticked while a queue waits.
-  const quotaMissing = passRequired && via === "LOCAL" && !pass;
+  // A suspended rewards card has to be cleared before the sale goes through.
+  const passBlocked = !!pass && pass.status !== "ACTIVE";
 
   const onScanned = useCallback(async (text: string) => {
     setScanner({ open: true, busy: true, error: "" });
@@ -277,7 +274,7 @@ export default function FuelPosScreen({ historyOnly = false }: { historyOnly?: b
       setServerMessage({ type: "", text: "" });
       setScanner({ open: false, busy: false, error: "" });
     } catch (err) {
-      setScanner({ open: true, busy: false, error: getErrorMessage(err, "Couldn't check that fuel pass.") });
+      setScanner({ open: true, busy: false, error: getErrorMessage(err, "Couldn't check that rewards card.") });
     }
   }, []);
 
@@ -318,7 +315,7 @@ export default function FuelPosScreen({ historyOnly = false }: { historyOnly?: b
       // the button, and is refused if anything changed while the mic was open.
       if (parsed.confirm) {
         const sale = getValues();
-        const ready = !!sale.fuelType && Number(sale.litersPumped) > 0 && (!isSupervisor || !!sale.pumpNumber) && !passBlocked && !quotaMissing && !isSubmitting;
+        const ready = !!sale.fuelType && Number(sale.litersPumped) > 0 && (!isSupervisor || !!sale.pumpNumber) && !passBlocked && !isSubmitting;
         if (!ready) setVoiceNote({ text: "Nothing to confirm yet — the fuel and the amount are needed first.", heard: transcript });
         else if (editedSinceMicTap.current || JSON.stringify(sale) !== saleAtMicTap.current) setVoiceNote({ text: "The sale changed while listening — check it and tap the record button.", heard: transcript });
         else {
@@ -389,30 +386,22 @@ export default function FuelPosScreen({ historyOnly = false }: { historyOnly?: b
       flash("error", "Select the pump this sale was made on.");
       return;
     }
-    if (quotaMissing) {
-      flash("error", "Scan the vehicle's fuel pass before selling fuel.");
-      return;
-    }
-    const usePass = via === "LOCAL" ? pass : null;
-    if (usePass && data.litersPumped > usePass.remaining) {
-      flash("error", `${usePass.vehicleRegNo} has only ${litres(usePass.remaining)} left this week.`);
-      return;
-    }
     try {
       const response = await api.post<FuelSale>("/fuel/sell", {
         fuelType: data.fuelType,
         litersPumped: data.litersPumped,
         pumpNumber: isSupervisor ? Number(data.pumpNumber) : undefined,
         paymentMethod: data.paymentMethod,
-        vehicleRegNo: usePass ? undefined : data.vehicleRegNo || undefined,
-        fuelPassCode: usePass?.code,
-        nationalConfirmed: via === "NATIONAL" || undefined,
+        vehicleRegNo: pass ? undefined : data.vehicleRegNo || undefined,
+        fuelPassCode: pass?.code,
+        nationalConfirmed: true,
       });
       setLastSale(response.data);
-      flash("success", `Transaction #${response.data.saleId} recorded — Rs. ${response.data.totalCost.toFixed(2)}.${showHistory ? ' Use "Receipt" in the list to print it.' : ""}`);
+      const earned = response.data.pointsEarned ? ` ${response.data.pointsEarned} points to ${pass?.customerName ?? "the card owner"}.` : "";
+      flash("success", `Transaction #${response.data.saleId} recorded — Rs. ${response.data.totalCost.toFixed(2)}.${earned}${showHistory ? ' Use "Receipt" in the list to print it.' : ""}`);
       // Keep pump and fuel selected for the next customer; clear the liters.
       reset({ fuelType: data.fuelType, pumpNumber: data.pumpNumber, litersPumped: "", paymentMethod: "CASH", vehicleRegNo: "" });
-      // The next vehicle scans its own pass / is confirmed afresh.
+      // The next vehicle shows its own card, if any.
       setPass(null);
       setAmountMode("LITRES");
       setRupees("");
@@ -427,8 +416,6 @@ export default function FuelPosScreen({ historyOnly = false }: { historyOnly?: b
       fetchData();
     } catch (err) {
       flash("error", getErrorMessage(err, "Transaction failed."));
-      // The quota may have moved since the scan (another pump, a voided sale): show the current figure.
-      if (usePass) api.get<FuelPass>("/fuel-pass/lookup", { params: { code: usePass.code } }).then(res => setPass(res.data)).catch(() => {});
     }
   };
 
@@ -542,82 +529,19 @@ export default function FuelPosScreen({ historyOnly = false }: { historyOnly?: b
               </div>
             ) : (
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
-              {/* --- FUEL QUOTA --- */}
-              {localOn && nationalOn && (
-                <div className="grid grid-cols-2 gap-1 p-1 rounded-xl bg-slate-100" role="tablist" aria-label="Quota check">
-                  {([["LOCAL", "Station pass"], ["NATIONAL", "National Fuel Pass"]] as const).map(([key, label]) => (
-                    <button key={key} type="button" role="tab" aria-selected={via === key} onClick={() => setQuotaChoice(key)}
-                      className={`py-2 rounded-lg text-[11px] font-black uppercase tracking-widest transition-colors ${via === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {via === "NATIONAL" ? (
-                <div className="flex items-center gap-3 rounded-xl px-3 py-2 border border-indigo-200 bg-indigo-50">
-                  <p className="min-w-0 flex-1 text-[11px] font-medium text-slate-700">
-                    <span className="font-black text-indigo-700">National Fuel Pass.</span> Deduct the litres in the official app first — the quota is checked there, not here.
-                  </p>
-                  <a href={passSettings?.nationalStationUrl || "https://fuelpass.gov.lk/"} target="_blank" rel="noopener noreferrer"
-                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-black uppercase tracking-widest">
-                    Open app
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </a>
-                </div>
-              ) : pass ? (
-                <div className={`rounded-2xl p-4 border-2 ${passBlocked ? "border-red-300 bg-red-50" : "border-emerald-300 bg-emerald-50"}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className={`text-[10px] font-black uppercase tracking-widest ${passBlocked ? "text-red-700" : "text-emerald-700"}`}>
-                        {pass.status !== "ACTIVE" ? "Pass suspended" : pass.remaining <= 0 ? "Weekly quota used up" : "Fuel pass verified"}
-                      </p>
-                      <p className="text-2xl font-black font-mono text-slate-900 truncate">{pass.vehicleRegNo}</p>
-                      <p className="text-xs font-bold text-slate-600 truncate">
-                        {categoryName(pass.vehicleCategory)}{pass.ownerName ? ` · ${pass.ownerName}` : ""}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className={`text-2xl font-black ${passBlocked ? "text-red-700" : "text-emerald-700"}`}>{litres(pass.remaining)}</p>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">left this week</p>
-                    </div>
-                  </div>
-                  <div className="mt-3"><QuotaBar pass={pass} /></div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {!passBlocked && (
-                      <button type="button" onClick={() => chooseLitres(pass.remaining)}
-                        className="px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-[11px] font-black uppercase tracking-widest text-emerald-800 hover:bg-emerald-100">
-                        Fill remaining {litres(pass.remaining)}
-                      </button>
-                    )}
-                    <button type="button" onClick={() => setScanner({ open: true, busy: false, error: "" })}
-                      className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-[11px] font-black uppercase tracking-widest text-slate-700 hover:bg-slate-100">
-                      Scan another
-                    </button>
-                    <button type="button" onClick={() => setPass(null)}
-                      className="px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-widest text-slate-500 hover:text-slate-800">
-                      Clear
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button type="button" onClick={() => setScanner({ open: true, busy: false, error: "" })}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl border-2 border-dashed border-slate-300 hover:border-blue-500 hover:bg-blue-50 transition-colors text-left">
-                  <span className="w-10 h-10 shrink-0 rounded-xl bg-slate-900 text-white flex items-center justify-center">
-                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V5a1 1 0 011-1h3M4 16v3a1 1 0 001 1h3m8-16h3a1 1 0 011 1v3m0 8v3a1 1 0 01-1 1h-3M8 8h3v3H8V8zm5 5h3v3h-3v-3zm-5 1h2m4-6h2" />
-                    </svg>
-                  </span>
-                  <span>
-                    <span className="block text-sm font-black text-slate-900">Scan fuel pass QR</span>
-                    <span className="block text-xs font-medium text-slate-500">
-                      {passRequired ? "Required before fuel can be sold." : "Optional — checks the vehicle's weekly quota."}
-                    </span>
-                  </span>
-                </button>
-              )}
+              {/* --- FUEL QUOTA: the National Fuel Pass, deducted in the official app --- */}
+              <div className="flex items-center gap-3 rounded-xl px-3 py-2 border border-indigo-200 bg-indigo-50">
+                <p className="min-w-0 flex-1 text-[11px] font-medium text-slate-700">
+                  <span className="font-black text-indigo-700">National Fuel Pass.</span> Deduct the litres in the official app first — the quota is checked there, not here.
+                </p>
+                <a href={passSettings?.nationalStationUrl || "https://fuelpass.gov.lk/"} target="_blank" rel="noopener noreferrer"
+                  className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-700 hover:bg-indigo-800 text-white text-[11px] font-black uppercase tracking-widest">
+                  Open app
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                </a>
+              </div>
 
               {/* What the mic is doing or heard; takes no room until it is used. */}
               {voiceReady && (voice.listening || voiceNote) && (
@@ -685,11 +609,10 @@ export default function FuelPosScreen({ historyOnly = false }: { historyOnly?: b
               <div className="space-y-1.5">
                 <div className="grid grid-cols-6 gap-1.5" role="group" aria-label="Usual litres">
                   {QUICK_LITRES.map(n => {
-                    const over = via === "LOCAL" && !!pass && n > pass.remaining;
                     const on = amountMode === "LITRES" && pumpedVolume === n;
                     return (
-                      <button key={n} type="button" disabled={over} onClick={() => chooseLitres(n)} aria-pressed={on}
-                        className={`py-2 rounded-lg border-2 text-sm font-black transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${on ? "bg-blue-600 border-blue-600 text-white" : "bg-white border-slate-200 text-slate-700 hover:border-blue-500 hover:text-blue-700"}`}>
+                      <button key={n} type="button" onClick={() => chooseLitres(n)} aria-pressed={on}
+                        className={`py-2 rounded-lg border-2 text-sm font-black transition-colors ${on ? "bg-blue-600 border-blue-600 text-white" : "bg-white border-slate-200 text-slate-700 hover:border-blue-500 hover:text-blue-700"}`}>
                         {n}<span className="text-[10px] font-bold opacity-70"> L</span>
                       </button>
                     );
@@ -719,7 +642,7 @@ export default function FuelPosScreen({ historyOnly = false }: { historyOnly?: b
                       inputMode="decimal"
                       step="any"
                       min="0.01"
-                      max={via === "LOCAL" && pass ? Math.min(1000, pass.remaining) : 1000}
+                      max={1000}
                       placeholder="20.5"
                       aria-label="Liters Pumped"
                       className={`w-full min-w-0 py-2 bg-transparent outline-none text-right text-lg font-black placeholder:font-bold placeholder:text-slate-300 ${amountMode === "LITRES" ? "text-blue-700" : "text-slate-500"}`}
@@ -744,9 +667,6 @@ export default function FuelPosScreen({ historyOnly = false }: { historyOnly?: b
                 </div>
                 {amountMode === "RUPEES" && rupeeAmount > 0 && rupeeLitres === null && (
                   <p className="text-[11px] font-bold text-amber-600">Pick the fuel to work out the litres.</p>
-                )}
-                {via === "LOCAL" && pass && pumpedVolume > pass.remaining && (
-                  <p className="text-[11px] font-bold text-red-500">Over the {litres(pass.remaining)} left on this pass.</p>
                 )}
                 {errors.litersPumped && (
                   <p className="text-xs font-bold text-red-500">
@@ -795,17 +715,43 @@ export default function FuelPosScreen({ historyOnly = false }: { historyOnly?: b
                 </div>
               )}
 
-              {(via === "NATIONAL" || (!pass && !passRequired)) && (
+              {/* --- REWARDS CARD (optional): earns the driver loyalty points; never limits the sale.
+                  Without a card the vehicle number can be typed instead, for the receipt. --- */}
+              {pass ? (
+                <div className={`flex items-center gap-3 rounded-xl px-3 py-2 border-2 ${passBlocked ? "border-red-300 bg-red-50" : "border-emerald-300 bg-emerald-50"}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-black font-mono text-slate-900 truncate">{pass.vehicleRegNo}</p>
+                    <p className={`text-[11px] font-bold truncate ${passBlocked ? "text-red-700" : pass.earnsPoints ? "text-emerald-700" : "text-amber-700"}`}>
+                      {passBlocked ? "Card suspended — clear it to sell without points"
+                        : pass.earnsPoints ? `Rewards card · points to ${pass.customerName}` : "Rewards card · no customer account, no points"}
+                    </p>
+                  </div>
+                  <button type="button" onClick={() => setPass(null)}
+                    className="shrink-0 px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-[11px] font-black uppercase tracking-widest text-slate-700 hover:bg-slate-100">
+                    Clear
+                  </button>
+                </div>
+              ) : (
               <div>
-                <input
-                  id="vehicleRegNo"
-                  {...register("vehicleRegNo")}
-                  aria-label="Vehicle number (optional)"
-                  title="Registered customers see this purchase and its receipt in their portal."
-                  placeholder="Vehicle no. (optional) — CAB-4521"
-                  maxLength={15}
-                  className={`w-full px-4 py-2 rounded-xl border bg-slate-50 focus:bg-white outline-none text-sm uppercase font-mono font-bold text-slate-800 placeholder:normal-case placeholder:font-sans placeholder:font-medium ${errors.vehicleRegNo ? "border-red-500" : "border-slate-200 focus:border-blue-500"}`}
-                />
+                <div className="flex gap-2">
+                  <input
+                    id="vehicleRegNo"
+                    {...register("vehicleRegNo")}
+                    aria-label="Vehicle number (optional)"
+                    title="Registered customers see this purchase and its receipt in their portal."
+                    placeholder="Vehicle no. (optional) — CAB-4521"
+                    maxLength={15}
+                    className={`min-w-0 flex-1 px-4 py-2 rounded-xl border bg-slate-50 focus:bg-white outline-none text-sm uppercase font-mono font-bold text-slate-800 placeholder:normal-case placeholder:font-sans placeholder:font-medium ${errors.vehicleRegNo ? "border-red-500" : "border-slate-200 focus:border-blue-500"}`}
+                  />
+                  <button type="button" onClick={() => setScanner({ open: true, busy: false, error: "" })}
+                    title="Scan the driver's rewards card so they earn loyalty points"
+                    className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 border-dashed border-slate-300 hover:border-emerald-500 hover:bg-emerald-50 text-[11px] font-black uppercase tracking-widest text-slate-700">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V5a1 1 0 011-1h3M4 16v3a1 1 0 001 1h3m8-16h3a1 1 0 011 1v3m0 8v3a1 1 0 01-1 1h-3M8 8h3v3H8V8zm5 5h3v3h-3v-3zm-5 1h2m4-6h2" />
+                    </svg>
+                    Rewards
+                  </button>
+                </div>
                 {errors.vehicleRegNo && <p className="mt-1 text-xs font-bold text-red-500">{errors.vehicleRegNo.message}</p>}
               </div>
               )}
@@ -826,8 +772,8 @@ export default function FuelPosScreen({ historyOnly = false }: { historyOnly?: b
                     </p>
                   </div>
                 </div>
-                <button type="submit" disabled={isSubmitting || passBlocked || quotaMissing} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3.5 px-4 rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-widest text-xs">
-                  {isSubmitting ? "Processing..." : passBlocked ? "No quota left" : quotaMissing ? "Scan fuel pass to continue" : via === "NATIONAL" ? "Deducted in app · Record sale" : "Process Transaction"}
+                <button type="submit" disabled={isSubmitting || passBlocked} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-3.5 px-4 rounded-xl shadow-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed uppercase tracking-widest text-xs">
+                  {isSubmitting ? "Processing..." : passBlocked ? "Clear the suspended card" : "Deducted in app · Record sale"}
                 </button>
               </div>
             </form>

@@ -6,8 +6,8 @@ import jsQR from "jsqr";
 
 type CameraState = "starting" | "scanning" | "blocked" | "unavailable";
 
-// Reads a fuel pass QR with the device camera. Works on the forecourt tablet or
-// phone (rear camera) and on a desk webcam. When no camera can be used, the pass
+// Reads a fuel rewards card QR with the device camera. Works on the forecourt tablet or
+// phone (rear camera) and on a desk webcam. When no camera can be used, the card
 // can be read from a photo of the QR or looked up by typing its code or the
 // vehicle number.
 export default function FuelPassScanner({ onDetected, onClose, busy = false, error = "" }: {
@@ -145,11 +145,11 @@ export default function FuelPassScanner({ onDetected, onClose, busy = false, err
   // Rendered into <body>: the page animates in with a transform, which would
   // otherwise anchor this overlay to the page instead of the window.
   return createPortal(
-    <div className="fixed inset-0 z-[90] flex items-center-safe justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto" role="dialog" aria-modal="true" aria-label="Scan fuel pass">
+    <div className="fixed inset-0 z-[90] flex items-center-safe justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto" role="dialog" aria-modal="true" aria-label="Scan rewards card">
       <div className="w-full max-w-md max-h-[calc(100vh-2rem)] overflow-y-auto bg-white rounded-3xl shadow-2xl">
         <div className="flex items-center justify-between px-6 pt-5 pb-4">
           <div>
-            <h3 className="text-lg font-black text-slate-900">Scan fuel pass</h3>
+            <h3 className="text-lg font-black text-slate-900">Scan rewards card</h3>
             <p className="text-xs font-medium text-slate-500">Hold the driver&apos;s QR code inside the frame.</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close scanner"
@@ -188,7 +188,7 @@ export default function FuelPassScanner({ onDetected, onClose, busy = false, err
               {camera === "unavailable" && (
                 <>
                   <p className="text-sm font-black text-white">No camera available</p>
-                  <p className="mt-1 text-xs text-slate-300">Use a photo of the QR, or type the pass code or vehicle number below.</p>
+                  <p className="mt-1 text-xs text-slate-300">Use a photo of the QR, or type the card code or vehicle number below.</p>
                 </>
               )}
               {camera !== "starting" && (
@@ -205,8 +205,8 @@ export default function FuelPassScanner({ onDetected, onClose, busy = false, err
           )}
 
           <form onSubmit={submitManual} className="flex gap-2">
-            <input value={manual} onChange={e => setManual(e.target.value)} placeholder="Pass code or vehicle number" maxLength={40}
-              aria-label="Pass code or vehicle number"
+            <input value={manual} onChange={e => setManual(e.target.value)} placeholder="Card code or vehicle number" maxLength={40}
+              aria-label="Card code or vehicle number"
               className="flex-1 min-w-0 px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-blue-500 outline-none uppercase font-mono font-bold text-slate-800 placeholder:normal-case placeholder:font-sans placeholder:font-medium" />
             <button type="submit" disabled={!manual.trim() || busy}
               className="px-4 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest disabled:opacity-40">Find</button>

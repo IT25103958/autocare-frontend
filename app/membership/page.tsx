@@ -5,7 +5,7 @@ import api from "../../utils/axiosInstance";
 import { useAuth } from "../context/AuthContext";
 import CustomerHistoryDrawer from "../_components/CustomerHistoryDrawer";
 import {
-  CustomerProfile, LoyaltyTransaction, TierBadge, TIER_ORDER, formatWhen, errorText, signedPoints,
+  CustomerProfile, LoyaltyTransaction, LOYALTY_TYPE_LABEL, TierBadge, TIER_ORDER, formatWhen, errorText, signedPoints,
 } from "../_components/crm";
 
 interface Settings {
@@ -14,6 +14,7 @@ interface Settings {
   goldPoints: number;
   platinumPoints: number;
   pointValue: number;
+  fuelPointsPerLitre: number;
   updatedBy: string | null;
   updatedAt: string | null;
 }
@@ -52,7 +53,7 @@ export default function MembershipPage() {
   // Programme rules editor
   const canEditRules = RULE_ROLES.includes(user?.role || "");
   const [editingRules, setEditingRules] = useState(false);
-  const [rules, setRules] = useState({ rupeesPerPoint: "", silverPoints: "", goldPoints: "", platinumPoints: "", pointValue: "" });
+  const [rules, setRules] = useState({ rupeesPerPoint: "", silverPoints: "", goldPoints: "", platinumPoints: "", pointValue: "", fuelPointsPerLitre: "" });
   const [members, setMembers] = useState<CustomerProfile[]>([]);
   const [savingRules, setSavingRules] = useState(false);
 
@@ -65,6 +66,7 @@ export default function MembershipPage() {
       goldPoints: String(st.goldPoints),
       platinumPoints: String(st.platinumPoints),
       pointValue: String(st.pointValue),
+      fuelPointsPerLitre: String(st.fuelPointsPerLitre),
     });
     setEditingRules(true);
     // Lifetime points of every member, for the live "who changes tier" preview.
@@ -77,10 +79,12 @@ export default function MembershipPage() {
     gold: parseInt(rules.goldPoints, 10),
     platinum: parseInt(rules.platinumPoints, 10),
     pointValue: parseFloat(rules.pointValue),
+    fuelRate: Number(rules.fuelPointsPerLitre),
   };
   const draftError =
     !(draft.rate >= 1) ? "Earn rate must be at least Rs. 1 per point."
     : !(draft.pointValue >= 0.01 && draft.pointValue <= 1000) ? "A point must be worth between Rs. 0.01 and Rs. 1,000 when redeemed."
+    : !(rules.fuelPointsPerLitre !== "" && Number.isInteger(draft.fuelRate) && draft.fuelRate >= 0 && draft.fuelRate <= 100) ? "Fuel points must be a whole number from 0 to 100 per litre (0 turns them off)."
     : !(draft.silver >= 1 && draft.gold >= 1 && draft.platinum >= 1) ? "Enter all three tier thresholds."
     : !(draft.silver < draft.gold && draft.gold < draft.platinum) ? "Thresholds must increase: Silver < Gold < Platinum."
     : "";
@@ -111,6 +115,7 @@ export default function MembershipPage() {
         goldPoints: draft.gold,
         platinumPoints: draft.platinum,
         pointValue: draft.pointValue,
+        fuelPointsPerLitre: draft.fuelRate,
       });
       setNotice({
         type: "ok",
@@ -215,9 +220,10 @@ export default function MembershipPage() {
               </div>
 
               {!editingRules ? (
-                <dl className="grid grid-cols-2 lg:grid-cols-5 gap-4 mt-4">
+                <dl className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mt-4">
                   {[
                     ["Earn rate", `1 pt per Rs. ${s.settings.rupeesPerPoint.toLocaleString()}`],
+                    ["Fuel earn rate", s.settings.fuelPointsPerLitre > 0 ? `${s.settings.fuelPointsPerLitre} pt per litre` : "Off"],
                     ["Redeem value", `1 pt = Rs. ${s.settings.pointValue.toFixed(2)}`],
                     ["Silver from", `${s.settings.silverPoints.toLocaleString()} pts`],
                     ["Gold from", `${s.settings.goldPoints.toLocaleString()} pts`],
@@ -231,9 +237,10 @@ export default function MembershipPage() {
                 </dl>
               ) : (
                 <div className="mt-4 space-y-4">
-                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
                     {([
                       ["rupeesPerPoint", "Rupees per point", "Rs."],
+                      ["fuelPointsPerLitre", "Fuel points per litre", "pts"],
                       ["pointValue", "Point worth when redeemed", "Rs."],
                       ["silverPoints", "Silver from", "pts"],
                       ["goldPoints", "Gold from", "pts"],
@@ -241,7 +248,7 @@ export default function MembershipPage() {
                     ] as const).map(([key, label, unit]) => (
                       <div key={key}>
                         <label htmlFor={`rule-${key}`} className="block text-xs font-bold text-slate-700 mb-1">{label} <span className="font-medium text-slate-500">({unit})</span></label>
-                        <input id={`rule-${key}`} type="number" min={key === "pointValue" ? 0.01 : 1} step={key === "pointValue" ? "0.01" : "1"} value={rules[key]}
+                        <input id={`rule-${key}`} type="number" min={key === "pointValue" ? 0.01 : key === "fuelPointsPerLitre" ? 0 : 1} step={key === "pointValue" ? "0.01" : "1"} value={rules[key]}
                           onChange={e => setRules({ ...rules, [key]: e.target.value })}
                           className="w-full px-3 py-2.5 border border-slate-200 bg-slate-50 rounded-xl text-sm tabular-nums outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
                       </div>
@@ -256,6 +263,7 @@ export default function MembershipPage() {
                         A Rs. 10,000 bill will earn <span className="font-bold">{Math.floor(10000 / draft.rate).toLocaleString()} points</span>,
                         worth <span className="font-bold">Rs. {(Math.floor(10000 / draft.rate) * draft.pointValue).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span> off a future bill
                         ({((draft.pointValue / draft.rate) * 100).toFixed(2)}% back).
+                        {" "}A 20 L fill-up with the rewards card earns <span className="font-bold">{(20 * draft.fuelRate).toLocaleString()} points</span>.
                         {" "}Rate changes apply to bills paid from now on — points already earned stay as they are.
                       </p>
                       {preview && members.length > 0 && (
@@ -388,7 +396,7 @@ export default function MembershipPage() {
                             <button onClick={() => setHistoryFor(t.customerId)} className="font-bold text-slate-900 hover:text-blue-700 text-left">{t.customerName}</button>
                           </td>
                           <td className="py-2 text-slate-600">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 mr-2">{t.type === "EARNED" ? "Earned" : "Adjusted"}</span>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 mr-2">{LOYALTY_TYPE_LABEL[t.type] ?? t.type}</span>
                             {t.reason}
                           </td>
                           <td className="py-2 text-slate-500">{t.performedBy}</td>

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import api from "../../utils/axiosInstance";
 import { useAuth } from "../context/AuthContext";
 import {
-  CustomerProfile, Ticket, LoyaltyTransaction, TierBadge, StatusBadge, PriorityBadge,
+  CustomerProfile, Ticket, LoyaltyTransaction, LOYALTY_TYPE_LABEL, TierBadge, StatusBadge, PriorityBadge,
   ticketRef, formatWhen, errorText, signedPoints, CATEGORY_NAMES,
 } from "./crm";
 
@@ -202,7 +202,7 @@ export default function CustomerHistoryDrawer({ customerId, onClose, onChanged }
                       <div>
                         <p className="text-sm text-slate-800">{t.reason}</p>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          {formatWhen(t.createdAt)} · {t.type === "EARNED" ? "Earned" : `Adjusted by ${t.performedBy}`}
+                          {formatWhen(t.createdAt)} · {t.type === "ADJUSTMENT" ? `Adjusted by ${t.performedBy}` : LOYALTY_TYPE_LABEL[t.type] ?? t.type}
                         </p>
                       </div>
                       <div className="text-right shrink-0">
