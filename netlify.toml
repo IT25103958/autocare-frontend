@@ -1,0 +1,9 @@
+# Netlify build settings for the Next.js frontend.
+# Netlify detects Next.js and adds its Next.js runtime automatically.
+[build]
+  command = "npm run build"
+
+[build.environment]
+  NODE_VERSION = "22"
+# BACKEND_URL (the Render address of the API) is set in the Netlify dashboard, not here,
+# so the same code also works on this laptop (where it defaults to localhost:8080).

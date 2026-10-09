@@ -28,13 +28,14 @@ export default function AttendanceLog({ canManage }: { canManage: boolean }) {
   const people = Array.from(new Map(shifts.map(s => [s.staffUsername || s.staffName, s.staffName])).entries())
     .sort((a, b) => a[1].localeCompare(b[1]));
 
-  const visible = shifts
+  // The summary follows the Staff filter too, so it always describes the rows below it.
+  const visible = useMemo(() => shifts
     .filter(s => person === "ALL" || (s.staffUsername || s.staffName) === person)
-    .sort((a, b) => (b.scheduledStart || "").localeCompare(a.scheduledStart || ""));
+    .sort((a, b) => (b.scheduledStart || "").localeCompare(a.scheduledStart || "")), [shifts, person]);
 
   const summary = useMemo(() => {
     const map = new Map<string, { name: string; role: string; worked: number; completed: number; absent: number; late: number; flagged: number }>();
-    for (const s of shifts) {
+    for (const s of visible) {
       const key = s.staffUsername || s.staffName;
       const row = map.get(key) ?? { name: s.staffName, role: s.role, worked: 0, completed: 0, absent: 0, late: 0, flagged: 0 };
       if (s.status === "COMPLETED") { row.completed++; row.worked += s.workedHours ?? 0; }
@@ -44,7 +45,7 @@ export default function AttendanceLog({ canManage }: { canManage: boolean }) {
       map.set(key, row);
     }
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [shifts]);
+  }, [visible]);
 
   const markAbsent = async (s: Shift) => {
     const reason = prompt(`Mark ${s.staffName} absent for ${fmtDay(s.shiftDate)}? Optional reason:`);
@@ -136,6 +137,9 @@ export default function AttendanceLog({ canManage }: { canManage: boolean }) {
                   <td className="px-5 py-2.5 whitespace-nowrap">
                     <p className="font-bold text-slate-900">{fmtDay(s.shiftDate)}</p>
                     <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{s.shiftType}</p>
+                    {s.expectedStart && s.scheduledStart && s.expectedStart > s.scheduledStart && (
+                      <p className="text-[11px] text-slate-500">Added at {fmtTime(s.expectedStart)}</p>
+                    )}
                   </td>
                   <td className="px-5 py-2.5">
                     <p className="font-bold text-slate-900">{s.staffName}</p>

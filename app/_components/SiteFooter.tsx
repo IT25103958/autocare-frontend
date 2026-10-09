@@ -149,7 +149,7 @@ export default function SiteFooter() {
             © {new Date().getFullYear()} Lanka Auto Care (Pvt) Ltd. All rights reserved.
           </p>
           <p className="md:ml-auto text-sm text-center md:text-right">
-            Designed &amp; Developed by <span className="font-bold text-white">Group 04</span>          </p>
+            Designed &amp; Developed by <span className="font-bold text-white">D.Kezara</span>          </p>
           <button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} aria-label="Back to top"
             className="w-10 h-10 shrink-0 rounded-lg bg-white/5 ring-1 ring-white/10 text-slate-200 hover:bg-rose-600 hover:text-white hover:ring-transparent flex items-center justify-center transition-all duration-300 hover:-translate-y-1">
             <Glyph d={PATH.up} />

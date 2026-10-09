@@ -13,13 +13,9 @@ import { downloadCsv as downloadCSV } from "../billing/_components/billing";
 
 const MANAGEMENT_ROLES = ["ACCOUNTS_FINANCE_OFFICER", "SUPER_ADMIN", "SYSTEM_ADMIN", "EXECUTIVE_OWNER"];
 
-// =============================================================================
+
 // VALIDATION
-// zod v4 + @hookform/resolvers v5: coerced number fields need the two-generic
-// useForm pattern (z.input for the raw form, z.output for what onSubmit
-// receives) or numeric fields type as `unknown`. Same fix applied on the
-// Payables page.
-// =============================================================================
+
 const payrollSchema = z.object({
   technicianName: z.string().min(2, "Please select an employee from the secure database."),
   technicianEmail: z.string().email("A valid email is required for secure PDF dispatch."),

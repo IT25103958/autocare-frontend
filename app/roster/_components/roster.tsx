@@ -17,6 +17,7 @@ export interface Shift {
   autoClosed: boolean | null;
   notes: string | null;
   scheduledStart: string | null;
+  expectedStart: string | null; // later than scheduledStart when the shift was added after it began
   scheduledEnd: string | null;
   workedHours: number | null;
   late: boolean;

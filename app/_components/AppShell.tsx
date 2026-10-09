@@ -529,7 +529,7 @@ function CategoryRow({ items, quick, current }: { items: NavItem[]; quick: NavLi
                 className={`group items-center gap-2 h-10 px-4 rounded-full text-sm font-bold whitespace-nowrap transition-all hover:-translate-y-0.5 outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                   i > 0 && items.length > 4 ? "hidden 2xl:inline-flex" : "inline-flex"} ${
                   main
-                    ? "bg-rose-600 text-white shadow-lg shadow-rose-600/25 hover:bg-rose-500"
+                    ? "bg-black text-white shadow-lg shadow-rose-600/25 hover:bg-rose-500"
                     : here
                       ? "bg-slate-900 text-white"
                       : "bg-white text-slate-900 ring-2 ring-inset ring-slate-900 hover:bg-slate-900 hover:text-white"}`}>

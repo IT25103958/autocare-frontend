@@ -78,7 +78,7 @@ export default function CustomerDirectory() {
             <h1 className="text-3xl font-black text-slate-900 tracking-tight">Customers</h1>
             <p className="text-slate-500 font-medium mt-1">{customers.length} customer profiles · membership and service history</p>
           </div>
-          <button onClick={startCreate} className="px-5 py-2.5 bg-blue-600 text-white text-sm font-black uppercase tracking-wider rounded-xl shadow-lg shadow-blue-600/20 hover:bg-blue-700">
+          <button onClick={startCreate} className="px-5 py-2.5 bg-slate-600 text-white text-sm font-black uppercase tracking-wider rounded-xl shadow-lg shadow-blue-600/20 hover:bg-blue-700">
             Register Customer
           </button>
         </div>
